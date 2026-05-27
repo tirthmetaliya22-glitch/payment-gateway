@@ -1,0 +1,423 @@
+"use client";
+
+import React, { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { 
+  LayoutDashboard, 
+  CreditCard, 
+  Users, 
+  Key, 
+  Settings, 
+  RotateCcw,
+  Search,
+  Bell,
+  ChevronDown,
+  FileText,
+  LogOut,
+  Menu,
+  X,
+  ChevronRight,
+  CheckCircle,
+  AlertCircle,
+  Info,
+  Wallet
+} from 'lucide-react';
+import Link from 'next/link';
+import { useAuth } from "../../components/AuthProvider";
+import { useConnectivity } from "@/hooks/useConnectivity";
+import { ConnectivityBanner } from "@/components/ConnectivityBanner";
+import { API_URL, apiFetch } from '@/lib/api';
+
+export default function MerchantLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showHelpCenter, setShowHelpCenter] = useState(false);
+  const { isLoggedIn, userEmail, logout, isAuthChecking } = useAuth();
+  
+  const { isBackendOnline, isCheckingHealth, checkHealth } = useConnectivity();
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [activeToast, setActiveToast] = useState<{ id: any; title: string; description: string; type: 'success' | 'warning' | 'info'; redirect_url?: string } | null>(null);
+
+  const [profileName, setProfileName] = useState<string>('Luxury Merchant');
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+
+  useEffect(() => {
+    if (!isLoggedIn || !API_URL) return;
+
+    // Use common socket initialization logic
+    const { io } = require('socket.io-client');
+    const socket = io(API_URL);
+
+    socket.on('connect', () => {
+      console.log('[Layout] Socket connected');
+    });
+
+    socket.on('payment_update', (data: any) => {
+      console.log('[Layout] Received real-time update:', data);
+
+      let title = 'Payment Update';
+      let type: 'success' | 'warning' | 'info' = 'info';
+
+      if (data.type === 'NEW_PAYMENT') {
+        title = 'New Payment Request';
+        type = 'success';
+      } else if (data.type === 'PAYMENT_CREATED') {
+        title = 'Payment Link Created';
+        type = 'success';
+      } else if (data.type === 'UTR_SUBMITTED') {
+        title = 'UTR Update Submitted';
+        type = 'warning';
+      } else if (data.type === 'PAYMENT_PAID') {
+        title = 'Payment Successful';
+        type = 'success';
+      } else if (data.type === 'WALLET_UPDATED') {
+        if (data.email !== userEmail) return; // Only process for this specific merchant
+        title = 'Wallet Funds Added';
+        type = 'success';
+        if (data.new_balance !== undefined) {
+          setWalletBalance(data.new_balance);
+        }
+      }
+
+      const newNotification = {
+        ...data,
+        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        title: title,
+        description: data.message,
+        time: 'Just now',
+        read: false,
+        timestamp: new Date()
+      };
+      setNotifications(prev => [newNotification, ...prev].slice(0, 20));
+      if (data.type !== 'UTR_SUBMITTED') {
+        setActiveToast(newNotification);
+      }
+      
+      // Auto-dismiss toast by changing time after 8 seconds
+      setTimeout(() => {
+        setNotifications(prev => prev.map(n => n.id === newNotification.id ? { ...n, time: '1 min ago' } : n));
+      }, 8000);
+
+      // Auto-dismiss visual toast popup after 8 seconds
+      setTimeout(() => {
+        setActiveToast(current => current?.id === newNotification.id ? null : current);
+      }, 8000);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [isLoggedIn, userEmail]);
+
+  const handleLogout = () => {
+    logout();
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      window.location.href = `/merchant/transactions?search=${encodeURIComponent(searchQuery)}`;
+    }
+  };
+
+  const menuItems = [
+    { icon: LayoutDashboard, label: 'Dashboard', href: '/merchant' },
+    { icon: Wallet, label: 'Wallet', href: '/merchant/wallet' },
+    { icon: CreditCard, label: 'Transactions', href: '/merchant/transactions' },
+    { icon: RotateCcw, label: 'Settlements', href: '/merchant/settlements' },
+    { icon: FileText, label: 'Payment Page', href: '/merchant/payments' },
+    { icon: Users, label: 'Customers', href: '/merchant/customers' },
+    { icon: Key, label: 'API Keys', href: '/merchant/api-keys' },
+    { icon: Settings, label: 'Settings', href: '/merchant/settings' },
+  ];
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!userEmail) return;
+      try {
+        const res = await apiFetch(`/merchant/profile`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.name) setProfileName(data.name);
+          if (data.wallet_balance !== undefined) setWalletBalance(Number(data.wallet_balance) || 0);
+        }
+      } catch (err) {
+        if (err instanceof TypeError && err.message === 'Failed to fetch') {
+          console.warn("Backend connectivity issue: Server is unreachable.");
+        } else {
+          console.error("Failed to fetch profile in layout:", err);
+        }
+      }
+    };
+    fetchProfile();
+  }, [userEmail]);
+
+  if (isAuthChecking) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-surface">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-sm font-bold text-muted animate-pulse">Verifying Access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-surface">
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-border flex flex-col transition-transform duration-300 md:relative md:translate-x-0
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-6 flex items-center justify-between border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center text-white font-bold">P</div>
+            <span className="text-xl font-bold tracking-tight text-secondary">PayFlow</span>
+          </div>
+          <button 
+            className="md:hidden p-1 text-muted hover:text-secondary"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {menuItems.map((item) => {
+            const isActive = item.href === '/merchant' ? pathname === '/merchant' : pathname?.startsWith(item.href);
+            
+            return (
+              <Link 
+                key={item.label}
+                href={item.href} 
+                onClick={() => setIsSidebarOpen(false)}
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  isActive 
+                    ? 'bg-primary text-white shadow-sm' 
+                    : 'text-muted hover:bg-slate-50 hover:text-secondary focus:bg-blue-50 focus:text-primary'
+                }`}
+              >
+                <item.icon className="w-4 h-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        
+        <div className="p-4 border-t border-border">
+          <div className="flex items-center gap-3 px-3 py-2 mb-2">
+            <div className={`w-2 h-2 rounded-full mr-1 ${isBackendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+            <div className="flex-1 overflow-hidden">
+              <p className="text-xs font-bold text-secondary truncate">{profileName}</p>
+              <p className="text-[10px] text-muted truncate">{isBackendOnline ? 'Operational' : 'System Offline'}</p>
+            </div>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden w-full">
+        {/* Top Header */}
+        <header className="h-16 bg-white border-b border-border flex items-center justify-between px-4 md:px-8 shrink-0">
+          <div className="flex items-center gap-4 flex-1">
+            <button 
+              className="md:hidden p-2 text-muted hover:text-secondary"
+              onClick={() => setIsSidebarOpen(true)}
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+            
+            <form onSubmit={handleSearch} className="relative w-full max-w-md hidden sm:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+              <input 
+                type="text" 
+                placeholder="Search transactions..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              />
+            </form>
+          </div>
+          
+          <div className="flex items-center gap-2 md:gap-4 relative">
+            {/* Wallet Balance */}
+            <div className="hidden sm:flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 shadow-sm transition-all hover:shadow-md">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700/80">Wallet</span>
+              <span className="text-sm font-black text-emerald-700">₹{walletBalance.toFixed(2)}</span>
+            </div>
+
+            {/* Connectivity Status Mini */}
+            <div className={`hidden lg:flex items-center gap-2 px-3 py-1 rounded-full border ${isBackendOnline ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${isBackendOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+              <span className="text-[10px] font-bold uppercase tracking-wider">{isBackendOnline ? 'Online' : 'Offline'}</span>
+            </div>
+
+            <div className="relative">
+              <button 
+                onClick={() => { setShowNotifications(!showNotifications); setShowHelpCenter(false); }}
+                className={`p-2 rounded-lg transition-colors relative ${showNotifications ? 'bg-primary/10 text-primary' : 'text-muted hover:text-secondary'}`}
+              >
+                <Bell className="w-5 h-5" />
+                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-border shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="px-4 py-3 border-b border-border bg-slate-50/50 flex justify-between items-center">
+                    <h4 className="text-[10px] font-bold text-secondary uppercase tracking-widest">Notifications</h4>
+                    <span className="text-[9px] text-primary font-bold bg-blue-50 px-2 py-0.5 rounded-full">
+                      {notifications.filter(n => !n.read).length} NEW
+                    </span>
+                  </div>
+                  
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center">
+                        <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <Bell className="w-5 h-5 text-slate-300" />
+                        </div>
+                        <p className="text-xs text-secondary font-bold">All caught up!</p>
+                        <p className="text-[10px] text-muted mt-1">No new notifications at this time.</p>
+                      </div>
+                    ) : (
+                      notifications.map(notif => (
+                        <div 
+                          key={notif.id}
+                          className={`px-4 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors cursor-pointer relative ${!notif.read ? 'bg-blue-50/20' : ''}`}
+                          onClick={() => {
+                            if (notif.redirect_url) router.push(notif.redirect_url);
+                            setNotifications(prev => prev.map(n => n.id === notif.id ? {...n, read: true} : n));
+                            setShowNotifications(false);
+                          }}
+                        >
+                          {!notif.read && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary" />}
+                          <p className="text-[11px] font-bold text-secondary mb-0.5">{notif.title}</p>
+                          <p className="text-[10px] text-muted line-clamp-2 leading-relaxed">{notif.description}</p>
+                          <p className="text-[9px] text-muted mt-1.5 font-medium">{notif.time}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="h-8 w-px bg-border mx-1 md:mx-2" />
+            
+            <div className="relative">
+              <button 
+                onClick={() => { setShowHelpCenter(!showHelpCenter); setShowNotifications(false); }}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showHelpCenter ? 'bg-primary/10 text-primary' : 'text-secondary hover:bg-slate-50'}`}
+              >
+                <span className="hidden sm:inline">Help Center</span>
+                <ChevronDown className={`w-4 h-4 text-muted transition-transform duration-200 ${showHelpCenter ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showHelpCenter && (
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-border shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="p-2 space-y-1">
+                    <Link 
+                      href="/test"
+                      onClick={() => setShowHelpCenter(false)}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-secondary hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-primary" /> Documentation
+                    </Link>
+                    <Link 
+                      href="/contact"
+                      onClick={() => setShowHelpCenter(false)}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-secondary hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <Users className="w-3.5 h-3.5 text-primary" /> Contact Support
+                    </Link>
+                    <div className="h-px bg-border my-1" />
+                    <div className="px-3 py-2">
+                      <p className="text-[9px] font-bold text-muted uppercase tracking-wider">Quick Search</p>
+                      <form onSubmit={(e) => { e.preventDefault(); setShowHelpCenter(false); router.push('/merchant/transactions'); }}>
+                        <input 
+                          type="text" 
+                          placeholder="Search docs..." 
+                          className="w-full mt-2 px-2 py-1.5 bg-slate-50 border border-border rounded-md text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Dynamic Content */}
+        <div className="flex-1 flex flex-col min-h-0 w-full relative">
+
+          <ConnectivityBanner 
+            isOnline={isBackendOnline} 
+            isChecking={isCheckingHealth} 
+            onRetry={checkHealth} 
+          />
+          <div className="flex-1 overflow-y-auto">
+            {children}
+          </div>
+
+          {/* Floating Toast Notification */}
+          {activeToast && (
+            <div className="fixed bottom-6 right-6 z-[9999] max-w-sm w-full bg-slate-900 text-white rounded-2xl shadow-2xl border border-white/10 p-4 flex gap-3 items-start animate-in slide-in-from-bottom-5 fade-in duration-300">
+              <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                activeToast.type === 'success' ? 'bg-green-500/20 text-green-400' :
+                activeToast.type === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                'bg-blue-500/20 text-blue-400'
+              }`}>
+                {activeToast.type === 'success' ? <CheckCircle className="w-4 h-4" /> :
+                 activeToast.type === 'warning' ? <AlertCircle className="w-4 h-4" /> :
+                 <Info className="w-4 h-4" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-white leading-tight">{activeToast.title}</p>
+                <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed break-all select-all">{activeToast.description}</p>
+                {activeToast.redirect_url && (
+                  <Link 
+                    href={activeToast.redirect_url} 
+                    onClick={() => setActiveToast(null)}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold text-primary hover:underline mt-2"
+                  >
+                    View Details
+                  </Link>
+                )}
+              </div>
+              <button 
+                onClick={() => setActiveToast(null)}
+                className="p-1 hover:bg-white/10 rounded-md transition-colors text-slate-400 hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

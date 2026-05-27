@@ -1,0 +1,1532 @@
+'use client';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Users,
+  Search,
+  Filter,
+  Mail,
+  User,
+  ChevronRight,
+  MessageSquare,
+  ExternalLink,
+  Share2,
+  Key,
+  CheckCircle2,
+  Loader2,
+  Eye,
+  EyeOff,
+  X,
+  Copy,
+  AlertTriangle,
+  Phone,
+  Globe,
+  Calendar,
+  CreditCard,
+  ShieldCheck,
+  CheckSquare,
+  Square,
+  ChevronDown,
+  Layers,
+  TrendingUp,
+  BarChart3,
+  Clock,
+  Download,
+  ChevronLeft,
+  PlusCircle,
+  Send,
+  Link2,
+  Trash2,
+  Building,
+  Shield
+} from 'lucide-react';
+import Link from 'next/link';
+import { io } from 'socket.io-client';
+import { API_URL, apiFetch } from '@/lib/api';
+
+
+
+export default function AdminMerchantsPage() {
+  const [merchants, setMerchants] = useState<any[]>([]); // Global Merchants
+  const [activatedInquiries, setActivatedInquiries] = useState<any[]>([]);
+  const [pendingInquiries, setPendingInquiries] = useState<any[]>([]);
+  const [invites, setInvites] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [visibleAdminKeys, setVisibleAdminKeys] = useState<Record<string, boolean>>({});
+
+  const toggleAdminKeyVisibility = (key: string) => {
+    setVisibleAdminKeys(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Search and Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'active' | 'pending' | 'invited'>('all');
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [selectedMerchant, setSelectedMerchant] = useState<any | null>(null);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteData, setInviteData] = useState({ name: '', email: '', amount: '' });
+  const [isInviting, setIsInviting] = useState(false);
+
+  // Direct Create Merchant State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createData, setCreateData] = useState({ name: '', email: '', password: '', username: '', plan: 'Standard', role: 'merchant', wallet_balance: 0 });
+  const [isCreating, setIsCreating] = useState(false);
+  const [isMerchantOnly, setIsMerchantOnly] = useState(false);
+  const [createdKeys, setCreatedKeys] = useState<{
+    merchant_id: string;
+    merchant_key: string;
+    salt_key: string;
+    name: string;
+    email: string;
+  } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const copyCredential = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+  const [checkedMerchants, setCheckedMerchants] = useState<Set<string>>(new Set());
+  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Use robust socket connection options
+    const socket = io(API_URL, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
+
+    socket.on('connect', () => {
+      console.log('Admin Merchants Socket Connected');
+    });
+
+    const handleUpdate = (data: any) => {
+      fetchData(); // Refresh all lists
+      const newNotification = {
+        ...data,
+        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      };
+      setNotifications(prev => [newNotification, ...prev]);
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== newNotification.id));
+      }, 10000);
+    };
+
+    socket.on('payment_update', handleUpdate);
+    socket.on('admin_notification', handleUpdate);
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedMerchant) {
+      setLastUpdated(`${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`);
+    }
+  }, [selectedMerchant]);
+
+  const exportToCSV = () => {
+    if (unifiedList.length === 0) return;
+
+    const headers = ["Name", "Email", "Category", "ID", "Volume", "Plan"];
+    const rows = unifiedList.map(item => [
+      `"${item.name || ''}"`,
+      `"${item.email || ''}"`,
+      `"${item.category || ''}"`,
+      `"${item.merchant_id || item.inquiry_id || 'N/A'}"`,
+      `"${item.volume || '₹0'}"`,
+      `"${item.plan || 'N/A'}"`
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `payflow_master_directory_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const togglePassword = (id: string) => {
+    setVisiblePasswords(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleCheck = (id: string) => {
+    const newChecked = new Set(checkedMerchants);
+    if (newChecked.has(id)) {
+      newChecked.delete(id);
+    } else {
+      newChecked.add(id);
+    }
+    setCheckedMerchants(newChecked);
+  };
+
+  const toggleCheckAll = (list: any[]) => {
+    const allIds = list.map(m => m.merchant_id || m.email || m.inquiry_id || m.id);
+    const areAllChecked = allIds.every(id => checkedMerchants.has(id));
+
+    const newChecked = new Set(checkedMerchants);
+    if (areAllChecked) {
+      allIds.forEach(id => newChecked.delete(id));
+    } else {
+      allIds.forEach(id => newChecked.add(id));
+    }
+    setCheckedMerchants(newChecked);
+  };
+
+  const fetchData = async () => {
+    try {
+      setError(null);
+      const [merchantsRes, inquiriesRes, invitesRes] = await Promise.all([
+        apiFetch(`/admin/merchants`),
+        apiFetch(`/admin/inquiries`),
+        apiFetch(`/admin/invites`)
+      ]);
+
+      if (!merchantsRes.ok || !inquiriesRes.ok || !invitesRes.ok) {
+        throw new Error('Failed to fetch data from server');
+      }
+
+      const merchantsData = await merchantsRes.json();
+      const inquiriesData = await inquiriesRes.json();
+      const invitesData = await invitesRes.json();
+
+      // 1. Pending Inquiries (only those NOT yet activated)
+      const merchantEmails = new Set(merchantsData.map((m: any) => m.email));
+      const pending = inquiriesData.filter((i: any) => !i.active && !merchantEmails.has(i.email));
+
+      // 2. Activated Merchants (All merchants from the merchants collection)
+      const activated = merchantsData.map((m: any) => {
+        const inq = inquiriesData.find((i: any) => i.email === m.email);
+        return {
+          ...m,
+          // Enrich with inquiry data if available, but merchant data takes precedence
+          name: m.name || inq?.name || 'Unknown',
+          merchant_id: m.merchant_id || inq?.inquiry_id || 'N/A',
+          plan: m.plan || 'Standard',
+          volume: m.volume || '₹0',
+          status: m.status || 'Active',
+          joined: m.joined || inq?.date || 'N/A'
+        };
+      });
+
+      setPendingInquiries(pending);
+      setActivatedInquiries(activated);
+      setMerchants(merchantsData);
+      setInvites(invitesData);
+    } catch (err) {
+      if (err instanceof TypeError && err.message === 'Failed to fetch') {
+        console.warn(`Backend connectivity issue: Server at ${API_URL} is unreachable.`);
+      } else {
+        console.error("Failed to fetch admin data:", err);
+      }
+      setError(`Unable to connect to the backend server. Please ensure the backend is running and accessible at ${API_URL}.`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleCreateInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteData.name || !inviteData.email) return;
+
+    setIsInviting(true);
+    try {
+      // Use socket for creation as requested
+      const socket = io(API_URL);
+      socket.emit('admin_create_invite', inviteData);
+
+      // We don't wait for acknowledgment here as the socket listener in useEffect will handle the UI update
+      setIsInviteModalOpen(false);
+      setInviteData({ name: '', email: '', amount: '' });
+
+      // Cleanup temp socket
+      setTimeout(() => socket.disconnect(), 1000);
+    } catch (err) {
+      console.error("Failed to emit invite via socket:", err);
+      setError("Failed to send invite via real-time connection.");
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const generateStrongPassword = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+    let password = "";
+    for (let i = 0; i < 16; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setCreateData(prev => ({ ...prev, password }));
+  };
+
+  const handleCreateMerchant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createData.name || !createData.email || !createData.password) return;
+
+    setIsCreating(true);
+    try {
+      const res = await apiFetch(`/admin/create-merchant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createData)
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        if (createData.role === 'admin') {
+          alert("Admin account created successfully!");
+          setIsCreateModalOpen(false);
+          setIsMerchantOnly(false);
+        } else {
+          setCreatedKeys({
+            merchant_id: data.merchant_id,
+            merchant_key: data.merchant_key || 'N/A',
+            salt_key: data.salt_key || 'N/A',
+            name: createData.name,
+            email: createData.email
+          });
+          setIsCreateModalOpen(false);
+          setIsMerchantOnly(false);
+        }
+        setCreateData({ name: '', email: '', password: '', username: '', plan: 'Standard', role: 'merchant', wallet_balance: 0 });
+        fetchData(); // Refresh lists
+      } else {
+        alert(data.message || "Failed to create account.");
+      }
+    } catch (err) {
+      console.error("Failed to create account:", err);
+      alert("Failed to create account. Please check your backend connection.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDelete = async (email: string, category: string) => {
+    try {
+      let endpoint = '';
+      const normalizedCategory = category.toUpperCase();
+      if (normalizedCategory === 'GLOBAL' || normalizedCategory === 'CONVERTED') {
+        endpoint = `/admin/merchants/${encodeURIComponent(email)}`;
+      } else if (normalizedCategory === 'PENDING') {
+        endpoint = `/admin/inquiries/${encodeURIComponent(email)}`;
+      } else if (normalizedCategory === 'INVITED') {
+        endpoint = `/admin/invites/${encodeURIComponent(email)}`;
+      }
+
+      if (!endpoint) return;
+
+      const res = await apiFetch(endpoint, { method: 'DELETE' });
+      if (res.ok) {
+        fetchData();
+        if (selectedMerchant?.email === email) setSelectedMerchant(null);
+      } else {
+        const data = await res.json();
+        alert(data.detail || "Failed to delete");
+      }
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("An error occurred while deleting.");
+    }
+  };
+
+  const merchantsWithSr = useMemo(() => {
+    return merchants.map((m, index) => ({ ...m, sr: index + 1 }));
+  }, [merchants]);
+
+  const activatedWithSr = useMemo(() => {
+    return activatedInquiries.map((u, index) => ({ ...u, sr: index + 1 }));
+  }, [activatedInquiries]);
+
+  const pendingWithSr = useMemo(() => {
+    return pendingInquiries.map((inq, index) => ({ ...inq, sr: index + 1 }));
+  }, [pendingInquiries]);
+
+  // Filtering Logic
+  const filteredMerchants = useMemo(() => {
+    if (filterType === 'pending') return [];
+    return merchantsWithSr.filter(m => {
+      const query = searchQuery.toLowerCase();
+      return (
+        (m.name || '').toLowerCase().includes(query) ||
+        (m.email || '').toLowerCase().includes(query) ||
+        (m.merchant_id || '').toLowerCase().includes(query)
+      );
+    });
+  }, [merchantsWithSr, searchQuery, filterType]);
+
+  const filteredActivated = useMemo(() => {
+    if (filterType === 'pending') return [];
+    return activatedWithSr.filter(u => {
+      const query = searchQuery.toLowerCase();
+      return (
+        (u.name || '').toLowerCase().includes(query) ||
+        (u.email || '').toLowerCase().includes(query) ||
+        (u.merchant_id || '').toLowerCase().includes(query)
+      );
+    });
+  }, [activatedWithSr, searchQuery, filterType]);
+
+  const filteredPending = useMemo(() => {
+    if (filterType === 'active') return [];
+    return pendingWithSr.filter(inq => {
+      const query = searchQuery.toLowerCase();
+      return (
+        (inq.name || '').toLowerCase().includes(query) ||
+        (inq.email || '').toLowerCase().includes(query) ||
+        (inq.username || '').toLowerCase().includes(query)
+      );
+    });
+  }, [pendingWithSr, searchQuery, filterType]);
+
+  const unifiedList = useMemo(() => {
+    const list = [
+      ...merchants.map(m => ({ ...m, category: 'GLOBAL', icon: <Globe className="w-3.5 h-3.5" />, color: 'text-primary bg-blue-50 border-blue-100' })),
+      ...activatedInquiries.map(u => ({ ...u, category: 'CONVERTED', icon: <CheckCircle2 className="w-3.5 h-3.5" />, color: 'text-green-600 bg-green-50 border-green-100' })),
+      ...pendingInquiries.map(inq => ({ ...inq, category: 'PENDING', icon: <Clock className="w-3.5 h-3.5" />, color: 'text-yellow-600 bg-yellow-50 border-yellow-100' })),
+      ...invites.map(inv => ({ ...inv, category: 'INVITED', icon: <Send className="w-3.5 h-3.5" />, color: 'text-purple-600 bg-purple-50 border-purple-100', merchant_id: inv.invite_id }))
+    ];
+
+    if (filterType === 'active') return list.filter(item => item.category !== 'PENDING' && item.category !== 'INVITED');
+    if (filterType === 'pending') return list.filter(item => item.category === 'PENDING');
+    if (filterType === 'invited') return list.filter(item => item.category === 'INVITED');
+
+    return list.filter(item => {
+      const query = searchQuery.toLowerCase();
+      return (
+        (item.name || '').toLowerCase().includes(query) ||
+        (item.email || '').toLowerCase().includes(query) ||
+        (item.merchant_id || item.username || '').toLowerCase().includes(query)
+      );
+    });
+  }, [merchants, activatedInquiries, pendingInquiries, searchQuery, filterType]);
+
+  const PaginationControls = ({
+    currentPage,
+    totalPages,
+    setCurrentPage,
+    itemsPerPage,
+    setItemsPerPage,
+    totalItems,
+    label
+  }: any) => {
+    if (itemsPerPage === -1) return (
+      <div className="px-6 py-4 bg-slate-50/30 border-t border-border flex justify-between items-center">
+        <p className="text-[10px] font-bold text-muted uppercase tracking-widest">
+          Showing all {totalItems} {label}
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Show:</span>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+            className="px-2 py-1 bg-white border border-slate-200 rounded-md text-[10px] font-bold text-secondary focus:outline-none"
+          >
+            <option value={10}>10</option>
+            <option value={30}>30</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={-1}>All</option>
+          </select>
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="px-6 py-4 bg-slate-50/30 border-t border-border flex flex-col items-center gap-4">
+        <div className="flex justify-between w-full items-center">
+          <p className="text-[10px] font-bold text-muted uppercase tracking-widest">
+            Showing {totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}-{Math.min(totalItems, currentPage * itemsPerPage)} of {totalItems} {label}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Show:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+              className="px-2 py-1 bg-white border border-slate-200 rounded-md text-[10px] font-bold text-secondary focus:outline-none"
+            >
+              <option value={10}>10</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={-1}>All</option>
+            </select>
+          </div>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center bg-white border border-border/50 rounded-lg shadow-sm overflow-hidden p-1">
+            <button
+              onClick={() => setCurrentPage((prev: number) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="w-8 h-8 flex items-center justify-center text-muted hover:text-secondary hover:bg-slate-50 disabled:opacity-20 transition-all rounded-md"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="flex items-center px-1">
+              {(() => {
+                const pages = [];
+                if (totalPages <= 5) {
+                  for (let i = 1; i <= totalPages; i++) pages.push(i);
+                } else {
+                  if (currentPage <= 3) {
+                    pages.push(1, 2, 3, '...', totalPages);
+                  } else if (currentPage >= totalPages - 2) {
+                    pages.push(1, '...', totalPages - 2, totalPages - 1, totalPages);
+                  } else {
+                    pages.push(1, '...', currentPage, '...', totalPages);
+                  }
+                }
+
+                return pages.map((page, i) => (
+                  page === '...' ? (
+                    <span key={`dots-${i}`} className="w-8 h-8 flex items-center justify-center text-muted text-[10px] font-bold">...</span>
+                  ) : (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page as number)}
+                      className={`w-8 h-8 flex items-center justify-center text-[10px] font-bold transition-all rounded-md mx-0.5 ${currentPage === page
+                        ? 'bg-primary text-white shadow-md shadow-emerald-200'
+                        : 'text-muted hover:bg-slate-50 hover:text-secondary'
+                        }`}
+                    >
+                      {page}
+                    </button>
+                  )
+                ));
+              })()}
+            </div>
+
+            <button
+              onClick={() => setCurrentPage((prev: number) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="w-8 h-8 flex items-center justify-center text-muted hover:text-secondary hover:bg-slate-50 disabled:opacity-20 transition-all rounded-md"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const [currentPageGlobal, setCurrentPageGlobal] = useState(1);
+  const [itemsPerPageGlobal, setItemsPerPageGlobal] = useState(10);
+
+  const [currentPageConverted, setCurrentPageConverted] = useState(1);
+  const [itemsPerPageConverted, setItemsPerPageConverted] = useState(10);
+
+  const [currentPagePending, setCurrentPagePending] = useState(1);
+  const [itemsPerPagePending, setItemsPerPagePending] = useState(10);
+
+  const effectiveItemsPerPage = itemsPerPage === -1 ? unifiedList.length : itemsPerPage;
+  const totalPages = Math.ceil(unifiedList.length / (effectiveItemsPerPage || 1));
+
+  const paginatedUnifiedList = useMemo(() => {
+    if (itemsPerPage === -1) return unifiedList;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return unifiedList.slice(startIndex, startIndex + itemsPerPage);
+  }, [unifiedList, currentPage, itemsPerPage]);
+
+  const paginatedGlobal = useMemo(() => {
+    if (itemsPerPageGlobal === -1) return filteredMerchants;
+    const startIndex = (currentPageGlobal - 1) * itemsPerPageGlobal;
+    return filteredMerchants.slice(startIndex, startIndex + itemsPerPageGlobal);
+  }, [filteredMerchants, currentPageGlobal, itemsPerPageGlobal]);
+
+  const paginatedConverted = useMemo(() => {
+    if (itemsPerPageConverted === -1) return filteredActivated;
+    const startIndex = (currentPageConverted - 1) * itemsPerPageConverted;
+    return filteredActivated.slice(startIndex, startIndex + itemsPerPageConverted);
+  }, [filteredActivated, currentPageConverted, itemsPerPageConverted]);
+
+  const paginatedPending = useMemo(() => {
+    if (itemsPerPagePending === -1) return filteredPending;
+    const startIndex = (currentPagePending - 1) * itemsPerPagePending;
+    return filteredPending.slice(startIndex, startIndex + itemsPerPagePending);
+  }, [filteredPending, currentPagePending, itemsPerPagePending]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setCurrentPageGlobal(1);
+    setCurrentPageConverted(1);
+    setCurrentPagePending(1);
+  }, [searchQuery, filterType, itemsPerPage, itemsPerPageGlobal, itemsPerPageConverted, itemsPerPagePending]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <React.Fragment>
+
+      <div className="p-4 md:p-8 page-entry">
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="w-5 h-5 text-red-500" />
+              <div>
+                <p className="text-red-800 text-xs font-bold">Backend Connectivity Error</p>
+                <p className="text-red-600 text-[10px]">{error}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-[10px] font-bold hover:bg-red-200 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-secondary tracking-tight">Merchant Management</h1>
+            <p className="text-xs md:text-sm text-muted">Monitor and manage all merchant accounts and incoming inquiries.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full lg:flex-1 lg:justify-end">
+            <div className="relative w-full sm:w-64 lg:w-80 group">
+              <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${searchQuery ? 'text-primary' : 'text-muted'}`} />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-10 py-2 bg-white border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-sm group-hover:border-primary/30"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X className="w-3.5 h-3.5 text-muted hover:text-secondary" />
+                </button>
+              )}
+            </div>
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => setShowFilterMenu(!showFilterMenu)}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white border border-border rounded-md text-sm font-medium text-secondary hover:bg-slate-50 transition-colors"
+              >
+                <Filter className="w-4 h-4" />
+                <span className="hidden sm:inline">
+                  {filterType === 'all' ? 'All Records' :
+                    filterType === 'active' ? 'Active Only' :
+                      filterType === 'pending' ? 'Pending Only' : 'Invited Only'}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+
+              {showFilterMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-lg shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                  <button
+                    onClick={() => { setFilterType('all'); setShowFilterMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${filterType === 'all' ? 'bg-blue-50 text-primary font-bold' : 'text-secondary'}`}
+                  >
+                    All Records
+                  </button>
+                  <button
+                    onClick={() => { setFilterType('active'); setShowFilterMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${filterType === 'active' ? 'bg-blue-50 text-primary font-bold' : 'text-secondary'}`}
+                  >
+                    Active Merchants
+                  </button>
+
+                  <button
+                    onClick={() => { setFilterType('invited'); setShowFilterMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${filterType === 'invited' ? 'bg-blue-50 text-primary font-bold' : 'text-secondary'}`}
+                  >
+                    Invited Merchants
+                  </button>
+                </div>
+              )}
+            </div>
+            {checkedMerchants.size > 0 && (
+              <button className="px-4 py-2 bg-slate-100 text-secondary rounded-md text-sm font-bold hover:bg-slate-200 transition-colors animate-in fade-in scale-95 flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-primary" />
+                Actions ({checkedMerchants.size})
+              </button>
+            )}
+
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-4">
+          <div className="premium-card p-6 rounded-2xl border-l-4 border-l-primary hover:shadow-xl transition-shadow">
+            <div className="flex justify-between items-start mb-4">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-primary">
+                <Users className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">ACTIVE</span>
+            </div>
+            <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1">Total Merchants</p>
+            <h3 className="text-2xl font-bold text-secondary">{activatedInquiries.length}</h3>
+          </div>
+
+          <div className="premium-card p-6 rounded-2xl border-l-4 border-l-teal-500 hover:shadow-xl transition-shadow">
+            <div className="flex justify-between items-start mb-4">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">+12.5%</span>
+            </div>
+            <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1">Conversion Rate</p>
+            <h3 className="text-2xl font-bold text-secondary">
+              {activatedInquiries.length + pendingInquiries.length > 0
+                ? Math.round((activatedInquiries.length / (activatedInquiries.length + pendingInquiries.length)) * 100)
+                : 0}%
+            </h3>
+          </div>
+          <div className="premium-card p-6 rounded-2xl border-l-4 border-l-purple-500 hover:shadow-xl transition-shadow">
+            <div className="flex justify-between items-start mb-4">
+              <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
+                <Layers className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1">Master Records</p>
+            <h3 className="text-2xl font-bold text-secondary">{activatedInquiries.length + pendingInquiries.length}</h3>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {/* Master Unified Directory */}
+          <div className="premium-card rounded-2xl overflow-hidden shadow-xl shadow-slate-200/50 border-0 bg-white ring-1 ring-slate-100">
+            <div className="px-8 py-6 border-b border-slate-100 bg-white flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-secondary tracking-tight flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-primary" /> Master Unified Directory
+                </h3>
+                <p className="text-xs text-muted mt-0.5 font-medium">All-in-one management for Converted and Pending accounts.</p>
+              </div>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Show:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-bold text-secondary focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                  >
+                    <option value={10}>10</option>
+                    <option value={30}>30</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={-1}>All</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="flex -space-x-2 mr-2">
+                    {[...Array(Math.min(3, unifiedList.length))].map((_, i) => (
+                      <div key={i} className={`w-8 h-8 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white ${['bg-blue-500', 'bg-teal-500', 'bg-indigo-500'][i]}`}>
+                        {unifiedList[i]?.name?.charAt(0)}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsMerchantOnly(true);
+                      setIsCreateModalOpen(true);
+                    }}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-secondary text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-100 group"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5 text-primary group-hover:scale-110 transition-transform" />
+                    <span>Create Merchant</span>
+                  </button>
+                  <button
+                    onClick={exportToCSV}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 group"
+                  >
+                    <Download className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+                    <span className="hidden sm:inline">Export CSV</span>
+                    <span className="sm:hidden">Export</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full high-density-table text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50">
+                    <th className="pl-8 py-4 whitespace-nowrap">User Name</th>
+                    <th className="whitespace-nowrap hidden md:table-cell">Contact Info</th>
+                    <th className="whitespace-nowrap">Category</th>
+                    <th className="whitespace-nowrap hidden lg:table-cell">Identifier</th>
+                    <th className="pr-8 text-right whitespace-nowrap">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 stagger-entry">
+                  {paginatedUnifiedList.map((item, index) => (
+                    <tr key={`${item.category}-${item.email || item.merchant_id || index}`} className="hover:bg-slate-50/50 transition-colors group">
+                      <td className="pl-8 py-5">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${item.color.split(' ')[1]} ${item.color.split(' ')[0]}`}>
+                            {item.name?.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-secondary group-hover:text-primary transition-colors">{item.name}</p>
+                            <p className="text-[10px] text-muted font-medium uppercase tracking-tighter">@{item.username || 'ID: ' + (item.merchant_id || item.inquiry_id || 'N/A')}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-5 hidden md:table-cell whitespace-nowrap">
+                        <p className="text-xs font-medium text-secondary">{item.email}</p>
+                        <p className="text-[10px] text-muted">{item.phone || 'No phone recorded'}</p>
+                      </td>
+                      <td className="py-5 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${item.color}`}>
+                          {item.icon} {item.category}
+                        </span>
+                      </td>
+                      <td className="py-5 hidden lg:table-cell whitespace-nowrap">
+                        <div className="flex flex-col gap-1">
+                          <code className="text-[10px] font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-600 w-fit">
+                            ID: {item.merchant_id || item.inquiry_id || 'N/A'}
+                          </code>
+                        </div>
+                      </td>
+
+                      <td className="pr-8 py-5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedMerchant(item)}
+                            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-secondary hover:border-primary hover:text-primary transition-all shadow-sm"
+                          >
+                            MANAGE
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item.email, item.category)}
+                            className="p-2 text-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                            title="Remove Merchant"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              setCurrentPage={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              setItemsPerPage={setItemsPerPage}
+              totalItems={unifiedList.length}
+              label="master records"
+            />
+          </div>
+
+          {/* Section 2: Activated Inquiries (Converted Leads) */}
+          {(filterType === 'all' || filterType === 'active') && (
+            <div className="premium-card rounded-xl overflow-hidden border-t-4 border-t-green-500 shadow-sm">
+              <div className="px-6 py-4 border-b border-border bg-green-50/30 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-secondary uppercase tracking-wider flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-500" /> Converted Inquiries
+                </h3>
+                <div className="flex items-center gap-4">
+                  <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full uppercase">Password Set</span>
+                  <button
+                    onClick={() => toggleCheckAll(filteredActivated)}
+                    className="text-[10px] font-bold text-muted hover:text-green-600 flex items-center gap-1"
+                  >
+                    {filteredActivated.length > 0 && filteredActivated.every(u => checkedMerchants.has(u.email)) ? <CheckSquare className="w-3 h-3 text-green-600" /> : <Square className="w-3 h-3" />}
+                    Select All
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full high-density-table text-left">
+                  <thead>
+                    <tr className="bg-slate-50/30">
+                      <th className="w-10 whitespace-nowrap"></th>
+                      <th className="w-12 whitespace-nowrap hidden lg:table-cell">SR.</th>
+                      <th className="whitespace-nowrap">Name / ID</th>
+                      <th className="whitespace-nowrap hidden sm:table-cell">Email</th>
+                      <th className="whitespace-nowrap hidden md:table-cell">Password</th>
+                      <th className="whitespace-nowrap hidden sm:table-cell">Activated</th>
+                      <th className="text-right pr-6 whitespace-nowrap">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedConverted.map((u, index) => (
+                      <tr key={u.email || `converted-${index}`} className={`hover:bg-slate-50 transition-colors ${checkedMerchants.has(u.email) ? 'bg-green-50/30' : ''}`}>
+                        <td className="py-4 pl-4">
+                          <button onClick={() => toggleCheck(u.email)} className="text-muted hover:text-green-600">
+                            {checkedMerchants.has(u.email) ? <CheckSquare className="w-4 h-4 text-green-600" /> : <Square className="w-4 h-4" />}
+                          </button>
+                        </td>
+                        <td className="text-xs font-bold text-muted py-4 hidden lg:table-cell whitespace-nowrap">{(u as any).sr}</td>
+                        <td className="py-4 whitespace-nowrap">
+                          <p className="font-bold text-secondary">{u.name}</p>
+                          <div className="flex flex-col gap-0.5 mt-0.5">
+                            <span className="font-mono text-[9px] text-muted">ID: {u.merchant_id}</span>
+                          </div>
+                        </td>
+                        <td className="text-xs font-medium text-secondary py-4 hidden sm:table-cell whitespace-nowrap">{u.email}</td>
+                        <td className="py-4 hidden md:table-cell whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <code className="text-[10px] font-bold bg-green-50 px-1.5 py-0.5 rounded border border-green-100 text-green-700 min-w-[80px]">
+                              {visiblePasswords[u.email] ? (u.password || '••••••••') : '••••••••'}
+                            </code>
+                            <button
+                              onClick={() => togglePassword(u.email)}
+                              className="p-1 hover:bg-green-100 rounded text-green-600 hover:text-green-800 transition-colors"
+                            >
+                              {visiblePasswords[u.email] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="text-xs text-muted py-4 hidden sm:table-cell whitespace-nowrap">{u.date}</td>
+                        <td className="py-4 text-right pr-6 whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => setSelectedMerchant(u)}
+                              className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+                            >
+                              View CRM
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(u.email, u.category || 'CONVERTED')}
+                              className="p-1.5 text-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                              title="Remove Merchant"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {paginatedConverted.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-muted italic">No inquiries match your search.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <PaginationControls
+                currentPage={currentPageConverted}
+                totalPages={Math.ceil(filteredActivated.length / (itemsPerPageConverted === -1 ? 1 : itemsPerPageConverted))}
+                setCurrentPage={setCurrentPageConverted}
+                itemsPerPage={itemsPerPageConverted}
+                setItemsPerPage={setItemsPerPageConverted}
+                totalItems={filteredActivated.length}
+                label="converted inquiries"
+              />
+            </div>
+          )}
+
+
+        </div>
+      </div>
+
+      {/* CRM Detail Side Drawer */}
+      {selectedMerchant &&
+        <div className="fixed inset-0 z-50 flex justify-end p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedMerchant(null)} />
+          <div className="relative w-full max-w-lg bg-white h-fit max-h-[calc(100vh-2rem)] mt-0 mb-auto rounded-[2rem] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 overflow-hidden border border-white/20">
+            <div className="px-6 py-3 border-b border-border flex items-center justify-between bg-slate-50">
+              <h2 className="text-lg font-bold text-secondary flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-primary" /> Merchant CRM View
+              </h2>
+              <button
+                onClick={() => setSelectedMerchant(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-muted" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5 space-y-6">
+              {/* Header Info */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary text-2xl font-bold">
+                  {selectedMerchant.name?.charAt(0)}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-secondary">{selectedMerchant.name}</h3>
+                  <p className="text-sm text-muted flex items-center gap-1.5">
+                    <Globe className="w-3 h-3" />
+                    {selectedMerchant.merchant_id || 'Lead Request'}
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${selectedMerchant.active !== false ? 'bg-green-50 text-green-600 border-green-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                      }`}>
+                      {selectedMerchant.active !== false ? 'ACTIVE MERCHANT' : 'PENDING INQUIRY'}
+                    </span>
+                    {selectedMerchant.plan && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase">
+                        {selectedMerchant.plan}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Information */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-muted uppercase tracking-widest border-b pb-1.5">Contact Information</h4>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                    <Mail className="w-4 h-4 text-primary mt-0.5" />
+                    <div>
+                      <p className="text-[10px] font-bold text-muted uppercase">Email Address</p>
+                      <p className="text-sm font-medium text-secondary">{selectedMerchant.email}</p>
+                    </div>
+                  </div>
+                  {selectedMerchant.phone && (
+                    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                      <Phone className="w-4 h-4 text-primary mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-bold text-muted uppercase">Phone Number</p>
+                        <p className="text-sm font-medium text-secondary">{selectedMerchant.phone}</p>
+                      </div>
+                    </div>
+                  )}
+                  {selectedMerchant.username && (
+                    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                      <User className="w-4 h-4 text-primary mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-bold text-muted uppercase">Preferred Username</p>
+                        <p className="text-sm font-medium text-secondary">@{selectedMerchant.username}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Business Metrics */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-muted uppercase tracking-widest border-b pb-1.5">Account Metrics</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3 border border-border rounded-lg">
+                    <p className="text-[10px] font-bold text-muted uppercase flex items-center gap-1">
+                      <CreditCard className="w-3 h-3" /> Monthly Volume
+                    </p>
+                    <p className="text-lg font-bold text-secondary mt-1">{selectedMerchant.volume || '₹0'}</p>
+                  </div>
+                  <div className="p-3 border border-border rounded-lg">
+                    <p className="text-[10px] font-bold text-muted uppercase flex items-center gap-1">
+                      <Calendar className="w-3 h-3" /> Joined Date
+                    </p>
+                    <p className="text-lg font-bold text-secondary mt-1">{selectedMerchant.date || selectedMerchant.joined || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+              {/* API Credentials */}
+              {selectedMerchant.merchant_id && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-muted uppercase tracking-widest border-b pb-1.5">API Credentials</h4>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200/50 rounded-xl">
+                      <Globe className="w-4 h-4 text-primary mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold text-muted uppercase">Merchant ID</p>
+                        <p className="text-xs font-mono font-bold text-secondary mt-0.5 select-all">{selectedMerchant.merchant_id}</p>
+                      </div>
+                    </div>
+                    {selectedMerchant.merchant_key && (
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200/50 rounded-xl">
+                        <Key className="w-4 h-4 text-primary mt-1" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold text-muted uppercase">Merchant Key (API Key)</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-xs font-mono font-bold text-secondary select-all break-all flex-1">
+                              {visibleAdminKeys[selectedMerchant.merchant_id + '_key'] ? selectedMerchant.merchant_key : '••••••••••••••••••••••••••••••••'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => toggleAdminKeyVisibility(selectedMerchant.merchant_id + '_key')}
+                              className="p-1 hover:text-primary hover:bg-slate-100 rounded-md transition-all shrink-0"
+                              title={visibleAdminKeys[selectedMerchant.merchant_id + '_key'] ? "Hide Key" : "Show Key"}
+                            >
+                              {visibleAdminKeys[selectedMerchant.merchant_id + '_key'] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedMerchant.salt_key && (
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200/50 rounded-xl">
+                        <ShieldCheck className="w-4 h-4 text-primary mt-1" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold text-muted uppercase">Salt Key</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-xs font-mono font-bold text-secondary select-all break-all flex-1">
+                              {visibleAdminKeys[selectedMerchant.merchant_id + '_salt'] ? selectedMerchant.salt_key : '••••••••••••••'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => toggleAdminKeyVisibility(selectedMerchant.merchant_id + '_salt')}
+                              className="p-1 hover:text-primary hover:bg-slate-100 rounded-md transition-all shrink-0"
+                              title={visibleAdminKeys[selectedMerchant.merchant_id + '_salt'] ? "Hide Key" : "Show Key"}
+                            >
+                              {visibleAdminKeys[selectedMerchant.merchant_id + '_salt'] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+
+            </div>
+
+            <div className="p-4 border-t border-border bg-slate-50 space-y-3">
+              <button
+                onClick={() => handleDelete(selectedMerchant.email, selectedMerchant.category || (selectedMerchant.active === false ? 'PENDING' : 'GLOBAL'))}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-50 border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-600 hover:text-white transition-all shadow-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                REMOVE {selectedMerchant.active !== false ? 'MERCHANT' : 'INQUIRY'} PERMANENTLY
+              </button>
+              <p className="text-[10px] text-muted italic text-center">
+                Last updated on {lastUpdated || 'Loading...'}
+              </p>
+            </div>
+          </div>
+        </div>
+      }
+
+      {/* Invite Merchant Modal */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsInviteModalOpen(false)} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Link2 className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-secondary">Create Invitation Link</h3>
+                  <p className="text-[10px] text-muted font-medium uppercase tracking-wider">Onboard New Merchant</p>
+                </div>
+              </div>
+              <button onClick={() => setIsInviteModalOpen(false)} className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-slate-200">
+                <X className="w-4 h-4 text-muted" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateInvite} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Merchant Name</label>
+                <div className="relative group">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-primary transition-colors" />
+                  <input
+                    type="text"
+                    required
+                    value={inviteData.name}
+                    onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                    placeholder="Enter business name..."
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Email Address</label>
+                <div className="relative group">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-primary transition-colors" />
+                  <input
+                    type="email"
+                    required
+                    value={inviteData.email}
+                    onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                    placeholder="merchant@example.com"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Request Amount (Optional)</label>
+                <div className="relative group">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted group-focus-within:text-primary transition-colors">₹</div>
+                  <input
+                    type="number"
+                    value={inviteData.amount}
+                    onChange={(e) => setInviteData({ ...inviteData, amount: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                    placeholder="0.00"
+                  />
+                </div>
+                <p className="text-[8px] text-muted italic pl-1">If the merchant exists, this creates a payment request in their dashboard.</p>
+              </div>
+              <div className="pt-4">
+                <button
+                  type="submit"
+                  disabled={isInviting}
+                  className="w-full py-3 bg-primary text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isInviting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Generating Link...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" /> Create & Send Invitation
+                    </>
+                  )}
+                </button>
+                <p className="text-center text-[10px] text-muted mt-4 px-4 font-medium">
+                  An invitation link will be generated for this merchant. They will be added to the "Invited" list for tracking.
+                </p>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Account Modal */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => {
+            setIsCreateModalOpen(false);
+            setIsMerchantOnly(false);
+          }} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-lg ${createData.role === 'admin' ? 'bg-secondary/10' : 'bg-primary/10'}`}>
+                  {createData.role === 'admin' ? (
+                    <Shield className="w-5 h-5 text-secondary" />
+                  ) : (
+                    <PlusCircle className="w-5 h-5 text-primary" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-secondary">
+                    {createData.role === 'admin' ? 'Create Admin Account' : 'Create Merchant Account'}
+                  </h3>
+                  <p className="text-[10px] text-muted font-medium uppercase tracking-wider">
+                    {createData.role === 'admin' ? 'Add a new platform administrator' : 'Add a new business'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => {
+                setIsCreateModalOpen(false);
+                setIsMerchantOnly(false);
+              }} className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-slate-200">
+                <X className="w-4 h-4 text-muted" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateMerchant} className="p-6 space-y-4 overflow-y-auto flex-1">
+              {!isMerchantOnly && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Account Role</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setCreateData({ ...createData, role: 'merchant' })}
+                      className={`py-3 px-4 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${createData.role === 'merchant'
+                        ? 'border-primary bg-blue-50/50 text-primary shadow-sm shadow-blue-100/50'
+                        : 'border-slate-200 bg-slate-50 text-muted hover:bg-slate-100/50'
+                        }`}
+                    >
+                      <Building className="w-4 h-4" />
+                      Merchant
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCreateData({ ...createData, role: 'admin' })}
+                      className={`py-3 px-4 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${createData.role === 'admin'
+                        ? 'border-slate-800 bg-slate-900 text-white shadow-sm shadow-slate-950/10'
+                        : 'border-slate-200 bg-slate-50 text-muted hover:bg-slate-100/50'
+                        }`}
+                    >
+                      <Shield className="w-4 h-4" />
+                      Admin
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">
+                  {createData.role === 'admin' ? 'Full Name' : 'Business Name'}
+                </label>
+                <div className="relative group">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-primary transition-colors" />
+                  <input
+                    type="text"
+                    required
+                    value={createData.name}
+                    onChange={(e) => setCreateData({ ...createData, name: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                    placeholder={createData.role === 'admin' ? 'Enter admin full name...' : 'Enter business/merchant name...'}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Email Address</label>
+                <div className="relative group">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-primary transition-colors" />
+                  <input
+                    type="email"
+                    required
+                    value={createData.email}
+                    onChange={(e) => setCreateData({ ...createData, email: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                    placeholder={createData.role === 'admin' ? 'admin@payflow.com' : 'merchant@example.com'}
+                  />
+                </div>
+              </div>
+              {createData.role !== 'admin' && (
+                <div className="space-y-1.5 animate-in fade-in duration-200">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Preferred Username (Optional)</label>
+                  <div className="relative group">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-primary transition-colors" />
+                    <input
+                      type="text"
+                      value={createData.username}
+                      onChange={(e) => setCreateData({ ...createData, username: e.target.value })}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                      placeholder="username (defaults to email handle)"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center pl-1">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-widest">Password</label>
+                  <button
+                    type="button"
+                    onClick={generateStrongPassword}
+                    className="text-[9px] font-bold text-primary hover:underline uppercase"
+                  >
+                    Generate Strong
+                  </button>
+                </div>
+                <div className="relative group">
+                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-primary transition-colors" />
+                  <input
+                    type="text"
+                    required
+                    value={createData.password}
+                    onChange={(e) => setCreateData({ ...createData, password: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all font-mono"
+                    placeholder="Min 8 characters password"
+                  />
+                </div>
+              </div>
+              {createData.role !== 'admin' && (
+                <React.Fragment>
+                  <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-200">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Merchant ID</label>
+                      <div className="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-sans font-bold text-slate-500 flex items-center justify-between">
+                        <span>M-******</span>
+                        <span className="text-[8px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded uppercase tracking-wider font-sans scale-90">Auto</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Salt Key</label>
+                      <div className="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-[10px] font-mono font-bold text-slate-500 flex items-center justify-between">
+                        <span>**************</span>
+                        <span className="text-[8px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded uppercase tracking-wider font-sans scale-90">Auto</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 animate-in fade-in duration-200">
+                    <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Service Plan</label>
+                    <select
+                      value={createData.plan}
+                      onChange={(e) => setCreateData({ ...createData, plan: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all cursor-pointer font-bold text-secondary"
+                    >
+                      <option value="Standard">Standard Plan</option>
+                      <option value="Enterprise">Enterprise Plan</option>
+                      <option value="Premium">Premium Plan</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 animate-in fade-in duration-200 mt-4">
+                    <label className="text-[10px] font-bold text-muted uppercase tracking-widest pl-1">Initial Wallet Balance</label>
+                    <div className="relative group">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted group-focus-within:text-primary transition-colors">₹</div>
+                      <input
+                        type="number"
+                        value={createData.wallet_balance}
+                        onChange={(e) => setCreateData({ ...createData, wallet_balance: parseFloat(e.target.value) || 0 })}
+                        className="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </React.Fragment>
+              )}
+              <div className="pt-4">
+                <button
+                  type="submit"
+                  disabled={isCreating}
+                  className={`w-full py-3 text-white rounded-xl text-sm font-bold transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 ${createData.role === 'admin' ? 'bg-slate-900 hover:bg-slate-800' : 'bg-secondary hover:bg-slate-800'
+                    }`}
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> {createData.role === 'admin' ? 'Creating Admin...' : 'Creating Merchant...'}
+                    </>
+                  ) : (
+                    <>
+                      {createData.role === 'admin' ? <Shield className="w-4 h-4 text-primary" /> : <PlusCircle className="w-4 h-4" />}
+                      {createData.role === 'admin' ? 'Create Admin Account' : 'Create Merchant Account'}
+                    </>
+                  )}
+                </button>
+                {createData.role !== 'admin' && (
+                  <p className="text-center text-[9px] text-muted mt-3 px-4 leading-relaxed font-medium animate-in fade-in duration-200">
+                    Merchant ID and Salt Key will be auto-generated. The merchant can immediately log in and access their dashboard.
+                  </p>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Newly Created Merchant Keys Modal */}
+      {createdKeys && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setCreatedKeys(null)} />
+          <div className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl border border-slate-100 max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
+            {/* Header */}
+            <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-secondary tracking-tight">Merchant API Credentials</h3>
+                  <p className="text-[10px] text-muted font-bold uppercase tracking-widest mt-0.5">Copy and secure these keys immediately</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCreatedKeys(null)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors border border-transparent hover:border-slate-200"
+              >
+                <X className="w-4 h-4 text-muted" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-8 space-y-6 overflow-y-auto flex-1">
+              {/* Security Warning */}
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3 text-amber-800">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider mb-1">One-Time Presentation Alert</h4>
+                  <p className="text-[11px] leading-relaxed text-amber-700 font-medium">
+                    These secret keys are securely encrypted and generated. For maximum security, **this is the only time** they will be displayed. Please store them in a secure password vault or environment variable now.
+                  </p>
+                </div>
+              </div>
+
+              {/* Merchant Context */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <div>
+                  <span className="block text-[9px] font-bold text-muted uppercase tracking-widest mb-0.5">Business Name</span>
+                  <span className="text-xs font-bold text-secondary">{createdKeys.name}</span>
+                </div>
+                <div>
+                  <span className="block text-[9px] font-bold text-muted uppercase tracking-widest mb-0.5">Email Address</span>
+                  <span className="text-xs font-bold text-secondary truncate block">{createdKeys.email}</span>
+                </div>
+              </div>
+
+              {/* Credentials Fields */}
+              <div className="space-y-4">
+                {/* Merchant ID */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-muted uppercase tracking-widest pl-1">Merchant ID</label>
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 p-3 rounded-xl font-mono text-xs text-secondary group">
+                    <div className="flex-1 overflow-x-auto whitespace-nowrap select-all">
+                      {createdKeys.merchant_id}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyCredential(createdKeys.merchant_id, 'merchant_id')}
+                      className={`p-1.5 rounded-lg border transition-all ${copiedField === 'merchant_id'
+                        ? 'bg-green-50 border-green-200 text-green-600 shadow-sm'
+                        : 'bg-white border-slate-200 text-muted hover:text-secondary shadow-sm'
+                        }`}
+                    >
+                      {copiedField === 'merchant_id' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Merchant Key */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-muted uppercase tracking-widest pl-1">Merchant Key (API Key)</label>
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 p-3 rounded-xl font-mono text-xs text-secondary group">
+                    <div className="flex-1 overflow-x-auto whitespace-nowrap select-all">
+                      {createdKeys.merchant_key}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyCredential(createdKeys.merchant_key, 'merchant_key')}
+                      className={`p-1.5 rounded-lg border transition-all ${copiedField === 'merchant_key'
+                        ? 'bg-green-50 border-green-200 text-green-600 shadow-sm'
+                        : 'bg-white border-slate-200 text-muted hover:text-secondary shadow-sm'
+                        }`}
+                    >
+                      {copiedField === 'merchant_key' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Salt Key */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-muted uppercase tracking-widest pl-1">Salt Key</label>
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 p-3 rounded-xl font-mono text-xs text-secondary group">
+                    <div className="flex-1 overflow-x-auto whitespace-nowrap select-all">
+                      {createdKeys.salt_key}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyCredential(createdKeys.salt_key, 'salt_key')}
+                      className={`p-1.5 rounded-lg border transition-all ${copiedField === 'salt_key'
+                        ? 'bg-green-50 border-green-200 text-green-600 shadow-sm'
+                        : 'bg-white border-slate-200 text-muted hover:text-secondary shadow-sm'
+                        }`}
+                    >
+                      {copiedField === 'salt_key' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Action */}
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={() => setCreatedKeys(null)}
+                  className="w-full py-4 bg-slate-900 text-white rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all shadow-lg flex items-center justify-center gap-2 shadow-slate-950/10"
+                >
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> Done, Saved Securely
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </React.Fragment>
+  );
+}

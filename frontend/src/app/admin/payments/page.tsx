@@ -1,0 +1,827 @@
+'use client';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Link as LinkIcon,
+  MoreVertical,
+  ExternalLink,
+  Search,
+  X,
+  AlertCircle,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Bell,
+  Copy,
+  QrCode,
+  CreditCard,
+  User,
+  CheckCircle
+} from 'lucide-react';
+import { io } from 'socket.io-client';
+import { API_URL, apiFetch } from '@/lib/api';
+
+interface Payment {
+  id: string;
+  name: string;
+  amount: string;
+  currency: string;
+  status: string;
+  created: string;
+  utr_id?: string;
+  creation_timestamp?: number;
+  qr_link?: string;
+  cf_upi_link?: string;
+  checkout_url?: string;
+  merchant_name?: string;
+  email?: string;
+  username?: string;
+}
+
+function ActionMenu({ pageId, qrLink, cfUpiLink, checkoutUrl, onOpenCheckout }: { pageId: string, qrLink?: string, cfUpiLink?: string, checkoutUrl?: string, onOpenCheckout: () => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleCopy = () => {
+    const url = checkoutUrl || `${window.location.origin}/checkout/${pageId}`;
+    navigator.clipboard.writeText(url);
+    alert("Link copied to clipboard!");
+    setIsOpen(false);
+  };
+
+  const handleCopyQR = () => {
+    const link = cfUpiLink || qrLink;
+    if (link) {
+      navigator.clipboard.writeText(link);
+      alert("QR Link copied to clipboard!");
+    }
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative inline-block" ref={menuRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`p-1.5 rounded-lg transition-all ${isOpen ? 'bg-slate-100 text-secondary shadow-inner' : 'text-muted hover:text-secondary hover:bg-slate-50'}`}
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-1 w-44 bg-white border border-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in duration-200 origin-top-right">
+          <div className="p-1">
+            <button
+              onClick={onOpenCheckout}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-secondary hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-primary" /> Open Checkout
+            </button>
+            <button
+              onClick={handleCopy}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-secondary hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <Copy className="w-3.5 h-3.5 text-primary" /> Copy Checkout Link
+            </button>
+            {qrLink && (
+              <button
+                onClick={handleCopyQR}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-secondary hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                <QrCode className="w-3.5 h-3.5 text-primary" /> Copy QR Link
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateLinkModal({ isOpen, onClose, onSuccess, initialMerchant }: { isOpen: boolean, onClose: () => void, onSuccess: () => void, initialMerchant?: { name: string, username: string } | null }) {
+  const [formData, setFormData] = useState({
+    name: '',
+    amount: '',
+    order_id: '',
+    return_url: '',
+    merchant_username: initialMerchant?.username || ''
+  });
+  const [merchants, setMerchants] = useState<any[]>([]);
+  const [isFetchingMerchants, setIsFetchingMerchants] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredMerchants = useMemo(() => {
+    if (!searchQuery) return merchants;
+    const lowerQuery = searchQuery.toLowerCase();
+    return merchants.filter(m =>
+      (m.username || '').toLowerCase().includes(lowerQuery) ||
+      (m.name || '').toLowerCase().includes(lowerQuery)
+    );
+  }, [searchQuery, merchants]);
+
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  // Reset highlighted index when the filtered list or dropdown open state changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [filteredMerchants, isDropdownOpen]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isDropdownOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+        setIsDropdownOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = filteredMerchants.length > 0 ? (highlightedIndex + 1) % filteredMerchants.length : 0;
+      setHighlightedIndex(nextIndex);
+      setTimeout(() => {
+        const item = document.getElementById(`merchant-option-${nextIndex}`);
+        if (item) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 0);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIndex = filteredMerchants.length > 0 ? (highlightedIndex - 1 + filteredMerchants.length) % filteredMerchants.length : 0;
+      setHighlightedIndex(prevIndex);
+      setTimeout(() => {
+        const item = document.getElementById(`merchant-option-${prevIndex}`);
+        if (item) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 0);
+    } else if (e.key === 'Enter') {
+      if (filteredMerchants.length > 0 && highlightedIndex >= 0 && highlightedIndex < filteredMerchants.length) {
+        e.preventDefault();
+        const selected = filteredMerchants[highlightedIndex];
+        const identifier = selected.username || selected.merchant_id || selected.email;
+        setFormData({ ...formData, merchant_username: identifier });
+        setIsDropdownOpen(false);
+        setSearchQuery('');
+      }
+    } else if (e.key === 'Escape') {
+      setIsDropdownOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && !initialMerchant) {
+      const fetchMerchants = async () => {
+        setIsFetchingMerchants(true);
+        try {
+          const res = await apiFetch(`/admin/merchants`);
+          if (res.ok) {
+            const data = await res.json();
+            setMerchants(data);
+          }
+        } catch (err) {
+          console.error("Failed to fetch merchants for selector:", err);
+        } finally {
+          setIsFetchingMerchants(false);
+        }
+      };
+      fetchMerchants();
+    }
+  }, [isOpen, initialMerchant]);
+
+
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError('');
+
+    const targetUsername = initialMerchant?.username || formData.merchant_username;
+    if (!targetUsername) {
+      setError("Please enter a username");
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      console.log('Creating payment link for:', targetUsername, formData);
+      const response = await apiFetch('/admin/create-payment-link', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: targetUsername,
+          payment: {
+            name: formData.name,
+            amount: formData.amount,
+            currency: 'INR',
+            order_id: formData.order_id || undefined,
+            return_url: formData.return_url || undefined,
+            status: 'Active'
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to create payment link');
+      }
+
+      const result = await response.json();
+
+      // Automatically close modal and refresh the table without showing success screen
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] sm:max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-4 sm:zoom-in duration-500 sm:duration-300">
+        <div className="px-6 py-4 border-b border-border bg-slate-50 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-secondary">Create Payment Link</h3>
+            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">
+              {initialMerchant ? `For: ${initialMerchant.name}` : 'Enter merchant username to continue'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors">
+            <X className="w-5 h-5 text-muted" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-xs font-bold">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </div>
+          )}
+
+          {!initialMerchant && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Merchant</label>
+              <div className="relative group" ref={dropdownRef}>
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none z-10" />
+                <input
+                  type="text"
+                  required={!formData.merchant_username}
+                  placeholder="Search or select a merchant..."
+                  value={isDropdownOpen ? searchQuery : (merchants.find(m => (m.username || m.merchant_id || m.email) === formData.merchant_username)?.name || formData.merchant_username || '')}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (!isDropdownOpen) setIsDropdownOpen(true);
+                  }}
+                  onFocus={() => {
+                    setIsDropdownOpen(true);
+                    setSearchQuery('');
+                  }}
+                  onKeyDown={handleKeyDown}
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-text"
+                />
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDropdownOpen(prev => !prev);
+                  }}
+                  className="absolute inset-y-0 right-0 px-4 flex items-center justify-center cursor-pointer z-20"
+                >
+                  {isFetchingMerchants ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-muted" />
+                  ) : (
+                    <ChevronDown className={`w-3.5 h-3.5 text-muted transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                  )}
+                </button>
+
+                {/* Dropdown Menu */}
+                {isDropdownOpen && (
+                  <div className="absolute z-[400] top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                    <div className="max-h-48 overflow-y-auto p-1">
+                      {filteredMerchants.length > 0 ? (
+                        filteredMerchants.map((m, i) => {
+                          const identifier = m.username || m.merchant_id || m.email;
+                          const isSelected = formData.merchant_username === identifier;
+                          const isHighlighted = highlightedIndex === i;
+                          return (
+                            <button
+                              id={`merchant-option-${i}`}
+                              key={`${identifier}-${i}`}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault(); // Prevent input from losing focus immediately
+                                setFormData({ ...formData, merchant_username: identifier });
+                                setIsDropdownOpen(false);
+                                setSearchQuery('');
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${isSelected
+                                ? 'bg-primary/10 border-primary/20'
+                                : isHighlighted
+                                  ? 'bg-slate-100 border-l-4 border-l-primary'
+                                  : 'hover:bg-slate-50'
+                                }`}
+                            >
+                              <div className="flex flex-col">
+                                <span className={`text-xs font-bold ${isSelected ? 'text-primary' : 'text-secondary'}`}>
+                                  {m.name || m.username || m.email}
+                                </span>
+                                {m.username && (
+                                  <span className="text-[10px] text-muted">@{m.username}</span>
+                                )}
+                              </div>
+                              {isSelected && <CheckCircle className="w-3 h-3 text-primary" />}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="px-3 py-4 text-center text-xs text-muted">
+                          No merchants found
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Payment Name</label>
+            <input
+              required
+              type="text"
+              placeholder="e.g., Consulting Fee"
+              value={formData.name || ''}
+              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Amount (₹)</label>
+            <input
+              required
+              type="number"
+              placeholder="0.00"
+              value={formData.amount || ''}
+              onChange={e => setFormData({ ...formData, amount: e.target.value })}
+              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Order ID (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g., ORD-77281"
+              value={formData.order_id || ''}
+              onChange={e => setFormData({ ...formData, order_id: e.target.value })}
+              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Return URL (Optional)</label>
+            <input
+              type="url"
+              placeholder="https://your-website.com/success"
+              value={formData.return_url || ''}
+              onChange={e => setFormData({ ...formData, return_url: e.target.value })}
+              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+          </div>
+
+          <div className="pt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold text-secondary hover:bg-slate-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={isSubmitting || (!initialMerchant && !formData.merchant_username)}
+              className="flex-1 py-3 bg-primary text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
+              Create Link
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function AdminPaymentsPage() {
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  // New state for modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedMerchantForLink, setSelectedMerchantForLink] = useState<{ name: string, username: string } | null>(null);
+
+  const fetchPayments = async () => {
+    setIsLoading(true);
+    setConnectionError(false);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased timeout to 30s for stability
+
+    try {
+      const res = await apiFetch(`/admin/payments`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          console.error("Authentication error on fetchPayments", res.status);
+          // window.location.href = '/login';
+          // return;
+        }
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setPayments(data);
+      } else {
+        setPayments([]);
+      }
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      setConnectionError(true);
+      setPayments([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayments();
+
+    // Use robust socket connection options
+    const socket = io(API_URL, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
+
+    socket.on('connect', () => {
+      console.log('Admin Payments Socket Connected');
+    });
+
+    socket.on('payment_update', (data) => {
+      console.log('Received real-time update in AdminPaymentsPage:', data);
+      fetchPayments();
+
+      if (data.type === 'UTR_SUBMITTED' || data.type === 'PAYMENT_PAID') {
+        return; // Silently update the table, no toast needed
+      }
+
+      const newNotification = {
+        ...data,
+        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      };
+      setNotifications(prev => [newNotification, ...prev]);
+
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== newNotification.id));
+      }, 10000);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  const handleOpenCheckout = (id: string, checkoutUrl?: string) => {
+    const url = checkoutUrl || `/checkout/${id}`;
+    window.open(url, '_blank');
+  };
+
+  const paymentsWithSr = useMemo(() => {
+    return [...payments]
+      .sort((a, b) => (b.creation_timestamp || 0) - (a.creation_timestamp || 0))
+      .map((p, index) => ({ ...p, sr: index + 1 }));
+  }, [payments]);
+
+  const filteredPayments = useMemo(() => {
+    return paymentsWithSr.filter(payment => {
+      const matchesSearch =
+        payment.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        payment.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (payment.merchant_name && payment.merchant_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (payment.username && payment.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        ((payment as any).user_id && (payment as any).user_id.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      return matchesSearch;
+    });
+  }, [searchQuery, paymentsWithSr]);
+
+  const effectiveItemsPerPage = itemsPerPage === -1 ? filteredPayments.length : itemsPerPage;
+  const totalPages = Math.ceil(filteredPayments.length / (effectiveItemsPerPage || 1));
+
+  const paginatedPayments = useMemo(() => {
+    if (itemsPerPage === -1) return filteredPayments;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredPayments.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredPayments, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, itemsPerPage]);
+
+  return (
+    <div className="p-4 md:p-8 page-entry relative">
+      {/* Create Link Modal */}
+      {isModalOpen && (
+        <CreateLinkModal
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setSelectedMerchantForLink(null);
+          }}
+          onSuccess={() => fetchPayments()}
+          initialMerchant={selectedMerchantForLink}
+        />
+      )}
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-8">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-secondary tracking-tight">Master Transactions</h1>
+          <p className="text-xs md:text-sm text-muted">Monitor all merchant payments across the platform.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
+          >
+            <LinkIcon className="w-4 h-4" /> CREATE PAYMENT LINK
+          </button>
+          <div className="flex items-center gap-2 bg-white border border-border px-3 py-2 rounded-lg shadow-sm">
+            <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Show:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+              className="bg-transparent text-xs font-bold text-secondary focus:outline-none cursor-pointer"
+            >
+              <option value={10}>10</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={-1}>All</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="premium-card rounded-xl overflow-hidden min-h-[400px]">
+        <div className="px-4 md:px-6 py-4 border-b border-border bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="relative w-full md:w-64 group">
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 transition-colors ${searchQuery ? 'text-primary' : 'text-muted'}`} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search merchants, orders, usernames..."
+              className="w-full pl-9 pr-4 py-1.5 bg-white border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary transition-all group-hover:border-primary/30"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-100 rounded-full"
+              >
+                <X className="w-3 h-3 text-muted" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-4 text-[10px] md:text-xs font-bold text-muted">
+            <span>
+              Showing {filteredPayments.length === 0 ? 0 : (itemsPerPage === -1 ? 1 : (currentPage - 1) * itemsPerPage + 1)}-{itemsPerPage === -1 ? filteredPayments.length : Math.min(filteredPayments.length, currentPage * itemsPerPage)} of {filteredPayments.length} transactions
+            </span>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Fetching global transactions...</p>
+          </div>
+        ) : connectionError ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-4 text-center px-6">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2">
+              <AlertCircle className="w-8 h-8 text-red-500" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-secondary">Backend Connection Failed</p>
+              <p className="text-xs text-muted max-w-[280px] mt-1">We couldn't reach the server. Please ensure the backend is running at {API_URL}.</p>
+            </div>
+            <button
+              onClick={fetchPayments}
+              className="px-6 py-2 bg-secondary text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-all shadow-md"
+            >
+              Retry Connection
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full high-density-table text-left">
+              <thead>
+                <tr className="bg-slate-50/30">
+                  <th className="w-12">SR.</th>
+                  <th>Merchant</th>
+                  <th>Payment Name</th>
+                  <th>Order ID</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>UTR ID</th>
+                  <th>Created</th>
+                  <th className="text-center">Actions</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedPayments.map((payment, index) => (
+                  <tr key={`${payment.id}-${index}`} className="hover:bg-slate-50 transition-colors align-middle group">
+                    <td className="text-xs font-bold text-muted py-4">
+                      {(payment as any).sr}
+                    </td>
+                    <td className="py-4">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2 group/mname">
+                          <span className="font-bold text-secondary text-xs flex items-center gap-1.5">
+                            <User className="w-3 h-3 text-primary" /> {payment.merchant_name || 'System'}
+                          </span>
+                          {payment.username && (
+                            <button
+                              onClick={() => {
+                                setSelectedMerchantForLink({
+                                  name: payment.merchant_name || 'Merchant',
+                                  username: payment.username!
+                                });
+                                setIsModalOpen(true);
+                              }}
+                              className="p-1 hover:bg-blue-50 rounded text-primary opacity-0 group-hover/mname:opacity-100 transition-all"
+                              title="Create new payment link for this merchant"
+                            >
+                              <LinkIcon className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted truncate max-w-[120px]">{payment.username ? `@${payment.username}` : 'N/A'}</span>
+
+                      </div>
+                    </td>
+                    <td className="py-4">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium text-secondary text-xs">{payment.name}</span>
+                      </div>
+                    </td>
+                    <td className="font-mono text-[10px] text-muted py-4">{payment.id}</td>
+                    <td className="py-4 font-bold text-secondary text-xs">{payment.amount} <span className="text-[9px] text-muted ml-0.5 font-normal">{payment.currency}</span></td>
+                    <td className="py-4">
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${payment.status === 'Active' ? 'bg-green-50 text-green-600 border-green-100' :
+                        (payment.status === 'Paid' || payment.status === 'Success') ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                          'bg-slate-50 text-slate-500 border-slate-100'
+                        }`}>
+                        {payment.status}
+                      </span>
+                    </td>
+                    <td className="py-4">
+                      {payment.utr_id ? (
+                        <span className="text-[10px] font-bold text-secondary bg-slate-100 px-2 py-1 rounded select-all">
+                          {payment.utr_id}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-muted italic">Pending</span>
+                      )}
+                    </td>
+                    <td className="text-[10px] text-muted py-4">{payment.created}</td>
+                    <td className="py-4">
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleOpenCheckout(payment.id, payment.checkout_url)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-full hover:bg-primary hover:text-white transition-all shadow-sm shadow-blue-50"
+                        >
+                          OPEN <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="py-4 text-right pr-4 relative">
+                      <ActionMenu
+                        pageId={payment.id}
+                        qrLink={payment.qr_link}
+                        cfUpiLink={payment.cf_upi_link}
+                        checkoutUrl={payment.checkout_url}
+                        onOpenCheckout={() => handleOpenCheckout(payment.id, payment.checkout_url)}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {paginatedPayments.length === 0 && (
+              <div className="py-20 text-center">
+                <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CreditCard className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-sm font-bold text-secondary">No transactions found</p>
+                <p className="text-xs text-muted mt-1">Global transaction history will appear here.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {itemsPerPage !== -1 && totalPages > 1 && (
+          <div className="px-4 md:px-6 py-6 border-t border-border flex flex-col items-center gap-4 bg-slate-50/10">
+            <div className="flex items-center bg-white border border-border/50 rounded-lg shadow-sm overflow-hidden p-1">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1 || isLoading}
+                className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-muted hover:text-secondary hover:bg-slate-50 disabled:opacity-20 transition-all rounded-md"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center px-1">
+                {(() => {
+                  const pages = [];
+                  if (totalPages <= 5) {
+                    for (let i = 1; i <= totalPages; i++) pages.push(i);
+                  } else {
+                    if (currentPage <= 3) {
+                      pages.push(1, 2, 3, '...', totalPages);
+                    } else if (currentPage >= totalPages - 2) {
+                      pages.push(1, '...', totalPages - 2, totalPages - 1, totalPages);
+                    } else {
+                      pages.push(1, '...', currentPage, '...', totalPages);
+                    }
+                  }
+
+                  return pages.map((page, i) => (
+                    page === '...' ? (
+                      <span key={`dots-${i}`} className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-muted text-xs font-bold">...</span>
+                    ) : (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page as number)}
+                        className={`w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-[10px] md:text-xs font-bold transition-all rounded-md mx-0.5 ${currentPage === page
+                          ? 'bg-primary text-white shadow-md shadow-blue-200'
+                          : 'text-muted hover:bg-slate-50 hover:text-secondary'
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  ));
+                })()}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages || totalPages === 0 || isLoading}
+                className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-muted hover:text-secondary hover:bg-slate-50 disabled:opacity-20 transition-all rounded-md"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
