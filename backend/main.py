@@ -70,18 +70,31 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    with open("live_debug.log", "a", encoding="utf-8") as f:
-        f.write(f"\n--- REQUEST {datetime.utcnow()} ---\n")
-        f.write(f"{request.method} {request.url}\n")
-        f.write(f"Headers: {dict(request.headers)}\n")
+    is_serverless = os.environ.get("VERCEL") == "1"
+    log_path = "/tmp/live_debug.log" if is_serverless else "live_debug.log"
+    
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n--- REQUEST {datetime.utcnow()} ---\n")
+            f.write(f"{request.method} {request.url}\n")
+            f.write(f"Headers: {dict(request.headers)}\n")
+    except Exception as log_err:
+        print(f"[LOG ERROR] Failed to write request log: {log_err}")
+        
     try:
         response = await call_next(request)
-        with open("live_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"Response status: {response.status_code}\n")
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"Response status: {response.status_code}\n")
+        except Exception as log_err:
+            print(f"[LOG ERROR] Failed to write response status: {log_err}")
         return response
     except Exception as e:
-        with open("live_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"Exception: {str(e)}\n")
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"Exception: {str(e)}\n")
+        except Exception as log_err:
+            print(f"[LOG ERROR] Failed to write exception log: {log_err}")
         raise e
 
 @sio.event
