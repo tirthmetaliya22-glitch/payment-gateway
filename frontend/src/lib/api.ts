@@ -1,4 +1,19 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const getApiUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    // Browser runtime environment
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://127.0.0.1:8000';
+    }
+    // Unified domain deployment routes backend through /_/backend
+    return '/_/backend';
+  }
+  return 'http://127.0.0.1:8000';
+};
+
+export const API_URL = getApiUrl();
 
 export async function apiFetch(endpoint: string, options: RequestInit = {}, retries = 3, backoff = 1000) {
   const url = `${API_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;

@@ -62,6 +62,7 @@ app.add_middleware(
         "http://localhost:3002",
         "http://127.0.0.1:3002",
     ],
+    allow_origin_regex="https://.*\\.vercel\\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,7 +86,7 @@ async def log_requests(request: Request, call_next):
 
 @sio.event
 async def connect(sid, environ):
-    print(f"Socket connected: {sid}")
+    print(f"Socket connected: {sid}") 
 
 @sio.event
 async def disconnect(sid):
