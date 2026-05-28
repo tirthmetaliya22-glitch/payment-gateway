@@ -40,7 +40,7 @@ async def startup_event():
         print("MongoDB: Connection Failed [ERROR]")
 
 # Add CORS middleware
-app.add_middleware(
+    app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
@@ -384,7 +384,10 @@ def add_payment_links(payment: dict):
     
     # If Cashfree UPI link is available, use it for the QR code
     if payment.get("cf_upi_link"):
-        qr_link = f"https://api.qrserver.com/v1/create-qr-code/?size=600x600&data={urllib.parse.quote(payment.get('cf_upi_link'))}"
+        if payment.get("cf_upi_link").startswith("data:"):
+            qr_link = payment.get("cf_upi_link")
+        else:
+            qr_link = f"https://api.qrserver.com/v1/create-qr-code/?size=600x600&data={urllib.parse.quote(payment.get('cf_upi_link'))}"
     # Else if custom QR link is provided, use it. Otherwise generate one.
     elif payment.get("custom_qr_link"):
         qr_link = payment.get("custom_qr_link")

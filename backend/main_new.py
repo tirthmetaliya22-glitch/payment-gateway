@@ -24,9 +24,15 @@ from schemas import (
 
 
 from socket_config import sio
-from routes import router
+from routes import (
+    router, create_cashfree_order, initiate_cashfree_upi_pay,
+    add_payment_links, get_db_user_id_for_email
+)
 
 app = FastAPI()
+
+# Mount Socket.IO directly inside FastAPI app so it works even if uvicorn is run with main:app or main_new:app
+app.mount("/socket.io", socketio.ASGIApp(sio, socketio_path=''))
 
 @app.on_event("startup")
 async def startup_event():

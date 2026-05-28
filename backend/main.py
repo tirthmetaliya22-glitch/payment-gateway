@@ -33,6 +33,9 @@ app = FastAPI()
 # Wrap with Socket.IO ASGI app so both app and socket_app are exported
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
+# Mount Socket.IO directly inside FastAPI app so it works even if uvicorn is run with main:app
+app.mount("/socket.io", socketio.ASGIApp(sio, socketio_path=''))
+
 @app.on_event("startup")
 async def startup_event():
     print("\n" + "="*50)

@@ -159,7 +159,10 @@ def add_payment_links(payment: dict):
     
     # If Cashfree UPI link is available, use it for the QR code
     if payment.get("cf_upi_link"):
-        qr_link = f"https://api.qrserver.com/v1/create-qr-code/?size=600x600&data={urllib.parse.quote(payment.get('cf_upi_link'))}"
+        if payment.get("cf_upi_link").startswith("data:"):
+            qr_link = payment.get("cf_upi_link")
+        else:
+            qr_link = f"https://api.qrserver.com/v1/create-qr-code/?size=600x600&data={urllib.parse.quote(payment.get('cf_upi_link'))}"
     # Else if custom QR link is provided, use it. Otherwise generate one.
     elif payment.get("custom_qr_link"):
         qr_link = payment.get("custom_qr_link")
@@ -2090,6 +2093,7 @@ async def cashfree_webhook(payload: dict):
             await sio.emit("payment_update", {
                 "type": "PAYMENT_PAID",
                 "order_id": order_id,
+                "payment_id": order_id,
                 "status": "Success",
                 "message": f"Payment Successful for Order: {order_id}",
                 "redirect_url": f"/merchant/payments"
@@ -2124,6 +2128,7 @@ async def cashfree_webhook(payload: dict):
                 await sio.emit("payment_update", {
                     "type": "PAYMENT_FAILED",
                     "order_id": order_id,
+                    "payment_id": order_id,
                     "status": "Failed",
                     "message": f"Payment Failed for Order: {order_id}",
                     "redirect_url": f"/merchant/payments"
@@ -2157,6 +2162,7 @@ async def cashfree_webhook(payload: dict):
             await sio.emit("payment_update", {
                 "type": "PAYMENT_FAILED",
                 "order_id": order_id,
+                "payment_id": order_id,
                 "status": "Failed",
                 "message": f"Payment Failed for Order: {order_id}",
                 "redirect_url": f"/merchant/payments"
@@ -2282,6 +2288,7 @@ async def simulate_payment(payment_id: str, req: dict):
         await sio.emit("payment_update", {
             "type": "PAYMENT_PAID",
             "order_id": payment_id,
+            "payment_id": payment_id,
             "status": "Success",
             "message": f"Payment Successful for Order: {payment_id}",
             "redirect_url": f"/merchant/payments"
@@ -2298,6 +2305,7 @@ async def simulate_payment(payment_id: str, req: dict):
         await sio.emit("payment_update", {
             "type": "PAYMENT_FAILED",
             "order_id": payment_id,
+            "payment_id": payment_id,
             "status": "Failed",
             "message": f"Payment Failed for Order: {payment_id}"
         })
@@ -2313,6 +2321,7 @@ async def simulate_payment(payment_id: str, req: dict):
         await sio.emit("payment_update", {
             "type": "PAYMENT_PENDING",
             "order_id": payment_id,
+            "payment_id": payment_id,
             "status": "Pending",
             "message": f"Payment Pending for Order: {payment_id}"
         })
