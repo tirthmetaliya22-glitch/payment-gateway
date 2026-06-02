@@ -146,12 +146,16 @@ class AddFundsRequest(BaseModel):
 
 class WithdrawRequest(BaseModel):
     amount: float
-    bank_account: str
-    ifsc_code: str
+    bank_account: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    remarks: Optional[str] = None
+    type: Optional[str] = "bank_transfer" # "bank_transfer" or "self_withdrawal"
     user_id: Optional[PyObjectId] = None
 
 class AdminWithdrawRequest(BaseModel):
     merchant_identifier: str
     amount: float
-    bank_account: str
-    ifsc_code: str
+    bank_account: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    remarks: Optional[str] = None
+    type: Optional[str] = "bank_transfer" # "bank_transfer" or "self_withdrawal"

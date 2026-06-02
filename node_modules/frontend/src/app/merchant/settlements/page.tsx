@@ -38,6 +38,8 @@ export default function SettlementsPage() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [bankAccount, setBankAccount] = useState('');
   const [ifscCode, setIfscCode] = useState('');
+  const [withdrawalType, setWithdrawalType] = useState<'bank_transfer' | 'self_withdrawal'>('bank_transfer');
+  const [remarks, setRemarks] = useState('');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState('');
   const [withdrawSuccess, setWithdrawSuccess] = useState('');
@@ -150,26 +152,37 @@ export default function SettlementsPage() {
       setWithdrawError('Insufficient available balance');
       return;
     }
-    if (!bankAccount || bankAccount.length < 8) {
-      setWithdrawError('Enter a valid bank account number');
-      return;
-    }
-    if (!ifscCode || ifscCode.length < 4) {
-      setWithdrawError('Enter a valid IFSC code');
-      return;
+    
+    if (withdrawalType === 'bank_transfer') {
+      if (!bankAccount || bankAccount.length < 8) {
+        setWithdrawError('Enter a valid bank account number');
+        return;
+      }
+      if (!ifscCode || ifscCode.length < 4) {
+        setWithdrawError('Enter a valid IFSC code');
+        return;
+      }
     }
 
     setIsWithdrawing(true);
     try {
+      const payload: any = {
+        amount: amountNum,
+        type: withdrawalType,
+        user_id: userId
+      };
+      
+      if (withdrawalType === 'bank_transfer') {
+        payload.bank_account = bankAccount;
+        payload.ifsc_code = ifscCode;
+      } else {
+        payload.remarks = remarks;
+      }
+
       const res = await apiFetch('/merchant/withdraw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: amountNum,
-          bank_account: bankAccount,
-          ifsc_code: ifscCode,
-          user_id: userId
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
@@ -182,17 +195,19 @@ export default function SettlementsPage() {
           id: `WD-${Date.now().toString().slice(-8)}`,
           amount: `₹${amountNum.toFixed(2)}`,
           status: 'SUCCESS',
-          bank: bankAccount.length >= 4 ? `Account (****${bankAccount.slice(-4)})` : bankAccount,
+          bank: withdrawalType === 'self_withdrawal' ? 'Registered Business Account' : (bankAccount.length >= 4 ? `Account (****${bankAccount.slice(-4)})` : bankAccount),
           date: new Date().toISOString(),
           created_at: new Date().toISOString(),
           email: userEmail || '',
-          type: 'withdrawal'
+          type: withdrawalType
         };
         setSettlements(prev => [newWithdrawal, ...prev]);
 
         setWithdrawAmount('');
         setBankAccount('');
         setIfscCode('');
+        setRemarks('');
+        setWithdrawalType('bank_transfer');
 
         // Refresh settlements list to ensure sync with backend
         fetchData();
@@ -534,33 +549,72 @@ export default function SettlementsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
-                    Bank Account Number
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-2">
+                    Withdrawal Type
                   </label>
-                  <input
-                    type="text"
-                    placeholder="Enter 8-18 digit account number"
-                    value={bankAccount}
-                    onChange={(e) => setBankAccount(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-white border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                    required
-                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setWithdrawalType("bank_transfer")}
+                      className={`py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg border-2 transition-all ${withdrawalType === "bank_transfer" ? 'bg-primary border-primary text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                    >
+                      Bank Account
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWithdrawalType("self_withdrawal")}
+                      className={`py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg border-2 transition-all ${withdrawalType === "self_withdrawal" ? 'bg-primary border-primary text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                    >
+                      Self Withdrawal
+                    </button>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
-                    IFSC Code
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. HDFC0001234"
-                    value={ifscCode}
-                    onChange={(e) => setIfscCode(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2.5 bg-white border border-border rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                    maxLength={11}
-                    required
-                  />
-                </div>
+                {withdrawalType === 'bank_transfer' ? (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                        Bank Account Number
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Enter 8-18 digit account number"
+                        value={bankAccount}
+                        onChange={(e) => setBankAccount(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-white border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                        IFSC Code
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. HDFC0001234"
+                        value={ifscCode}
+                        onChange={(e) => setIfscCode(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-2.5 bg-white border border-border rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                        maxLength={11}
+                        required
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                      Remarks (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Self withdrawal to business account"
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-white border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    />
+                  </div>
+                )}
               </div>
 
               <button

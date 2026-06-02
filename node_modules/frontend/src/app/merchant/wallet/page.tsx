@@ -67,7 +67,7 @@ export default function MerchantWalletPage() {
           <h1 className="text-3xl font-black text-secondary tracking-tight">My Wallet</h1>
           <p className="text-sm text-muted mt-1 font-medium">View your current balance and transaction history</p>
         </div>
-        <button 
+        <button
           onClick={fetchData}
           disabled={isLoading}
           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border rounded-xl text-sm font-bold text-secondary shadow-sm hover:shadow-md hover:bg-slate-50 transition-all disabled:opacity-50"
@@ -81,7 +81,7 @@ export default function MerchantWalletPage() {
       <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-3xl p-8 mb-8 shadow-xl shadow-emerald-900/20 text-white relative overflow-hidden">
         <div className="absolute -right-12 -top-12 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
         <div className="absolute -left-12 -bottom-12 w-48 h-48 bg-emerald-400/20 rounded-full blur-3xl"></div>
-        
+
         <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <div className="flex items-center gap-2 text-emerald-100 mb-2">
@@ -143,9 +143,8 @@ export default function MerchantWalletPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold ${
-                        entry.type === 'CREDIT' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                      }`}>
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold ${entry.type === 'CREDIT' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                        }`}>
                         {entry.type === 'CREDIT' ? <ArrowDownLeft className="w-3.5 h-3.5" /> : null}
                         {entry.type}
                       </span>

@@ -53,7 +53,12 @@ export default function MerchantLayout({
 
     // Use common socket initialization logic
     const { io } = require('socket.io-client');
-    const socket = io(API_URL);
+    const socket = io(API_URL, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
 
     socket.on('connect', () => {
       console.log('[Layout] Socket connected');

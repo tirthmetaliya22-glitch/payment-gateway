@@ -2,7 +2,7 @@ const getApiUrl = () => {
   if (typeof window !== 'undefined') {
     // Browser runtime environment: dynamically match loopback hostname to avoid browser CORS/PNA restrictions
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      return `http://${window.location.hostname}:8000`;
+      return 'http://127.0.0.1:8000';
     }
     if (process.env.NEXT_PUBLIC_API_URL) {
       return process.env.NEXT_PUBLIC_API_URL;
@@ -10,7 +10,7 @@ const getApiUrl = () => {
     // Unified domain deployment routes backend through /_/backend
     return '/_/backend';
   }
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 };
 
 export const API_URL = getApiUrl();

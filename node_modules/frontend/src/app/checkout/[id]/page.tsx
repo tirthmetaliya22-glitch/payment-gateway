@@ -39,7 +39,8 @@ export default function CheckoutPage() {
     return `${part1}${part2}`;
   });
 
-  const amountVal = paymentData ? paymentData.amount.replace('₹', '').replace(',', '').trim() : "5.00";
+  const cleanAmountNum = paymentData ? parseFloat(paymentData.amount.replace(/[^0-9.]/g, '')) : NaN;
+  const amountVal = isNaN(cleanAmountNum) ? "5.00" : cleanAmountNum.toFixed(2);
   const dynamicQrLink = `https://payments-test.cashfree.com/pgbillpayuiapi/simulator/${numericTxnId}?txnId=${numericTxnId}&amount=${amountVal}&pa=cashfree@testbank&pn=Cashfree&tr=${numericTxnId}&am=${amountVal}&cu=INR&mode=00&purpose=00&mc=5732&tn=${encodeURIComponent("Payment " + (paymentData?.id || ""))}`;
 
   useEffect(() => {
@@ -316,7 +317,8 @@ export default function CheckoutPage() {
   }
 
   const payerName = paymentData.name;
-  const amount = paymentData.amount.replace('₹', '');
+  const displayNum = parseFloat(paymentData.amount.replace(/[^0-9.]/g, ''));
+  const amount = isNaN(displayNum) ? "5.00" : displayNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-4 sm:p-8 relative">

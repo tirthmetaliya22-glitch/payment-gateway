@@ -32,7 +32,9 @@ function ProcessWithdrawalModal({ isOpen, onClose, onSuccess }: { isOpen: boolea
     merchant_identifier: '',
     amount: '',
     bank_account: '',
-    ifsc_code: ''
+    ifsc_code: '',
+    remarks: '',
+    type: 'bank_transfer' as 'bank_transfer' | 'self_withdrawal'
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -67,14 +69,22 @@ function ProcessWithdrawalModal({ isOpen, onClose, onSuccess }: { isOpen: boolea
     setError('');
 
     try {
+      const payload: any = {
+        merchant_identifier: formData.merchant_identifier,
+        amount: parseFloat(formData.amount),
+        type: formData.type
+      };
+
+      if (formData.type === 'bank_transfer') {
+        payload.bank_account = formData.bank_account;
+        payload.ifsc_code = formData.ifsc_code;
+      } else {
+        payload.remarks = formData.remarks;
+      }
+
       const response = await apiFetch('/admin/withdraw', {
         method: 'POST',
-        body: JSON.stringify({
-          merchant_identifier: formData.merchant_identifier,
-          amount: parseFloat(formData.amount),
-          bank_account: formData.bank_account,
-          ifsc_code: formData.ifsc_code
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -89,10 +99,10 @@ function ProcessWithdrawalModal({ isOpen, onClose, onSuccess }: { isOpen: boolea
         email: formData.merchant_identifier,
         amount: parseFloat(formData.amount),
         status: 'SUCCESS',
-        bank: formData.bank_account.length >= 4 ? `Account (****${formData.bank_account.slice(-4)})` : formData.bank_account,
-        ifsc: formData.ifsc_code,
+        bank: formData.type === 'self_withdrawal' ? 'Registered Business Account' : (formData.bank_account.length >= 4 ? `Account (****${formData.bank_account.slice(-4)})` : formData.bank_account),
+        ifsc: formData.type === 'self_withdrawal' ? 'N/A' : formData.ifsc_code,
         created_at: new Date().toISOString(),
-        type: 'withdrawal'
+        type: formData.type
       };
 
       onSuccess(newWithdrawal);
@@ -171,28 +181,63 @@ function ProcessWithdrawalModal({ isOpen, onClose, onSuccess }: { isOpen: boolea
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Bank Account Number</label>
-            <input
-              required
-              type="text"
-              placeholder="e.g., 000000000000"
-              value={formData.bank_account}
-              onChange={e => setFormData({ ...formData, bank_account: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-            />
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Withdrawal Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, type: 'bank_transfer' })}
+                className={`py-2 text-[10px] font-bold uppercase tracking-wider rounded-xl border-2 transition-all ${formData.type === 'bank_transfer' ? 'bg-primary border-primary text-white shadow-md shadow-blue-100' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+              >
+                Bank Account
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, type: 'self_withdrawal' })}
+                className={`py-2 text-[10px] font-bold uppercase tracking-wider rounded-xl border-2 transition-all ${formData.type === 'self_withdrawal' ? 'bg-primary border-primary text-white shadow-md shadow-blue-100' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+              >
+                Self Withdrawal
+              </button>
+            </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">IFSC Code</label>
-            <input
-              required
-              type="text"
-              placeholder="e.g., HDFC0000001"
-              value={formData.ifsc_code}
-              onChange={e => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all uppercase"
-            />
-          </div>
+          {formData.type === 'bank_transfer' ? (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Bank Account Number</label>
+                <input
+                  required
+                  type="text"
+                  placeholder="e.g., 000000000000"
+                  value={formData.bank_account}
+                  onChange={e => setFormData({ ...formData, bank_account: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-wider">IFSC Code</label>
+                <input
+                  required
+                  type="text"
+                  placeholder="e.g., HDFC0000001"
+                  value={formData.ifsc_code}
+                  onChange={e => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all uppercase"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Remarks (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g., Payout to business account"
+                value={formData.remarks}
+                onChange={e => setFormData({ ...formData, remarks: e.target.value })}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+              />
+            </div>
+          )}
 
           <div className="pt-4 flex gap-3">
             <button

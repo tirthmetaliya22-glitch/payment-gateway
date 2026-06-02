@@ -84,7 +84,12 @@ export default function TransactionsPage() {
     fetchPayments();
 
     // Socket.IO Connection for Real-time Updates
-    const socket = io(API_URL);
+    const socket = io(API_URL, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
 
     socket.on('connect', () => {
       console.log('[Transactions] Real-time connection established');
