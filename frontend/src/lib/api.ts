@@ -1,7 +1,10 @@
 const getApiUrl = () => {
   if (typeof window !== 'undefined') {
     // Browser runtime environment: dynamically match loopback hostname to avoid browser CORS/PNA restrictions
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    if (window.location.hostname === 'localhost') {
+      return 'http://localhost:8000';
+    }
+    if (window.location.hostname === '127.0.0.1') {
       return 'http://127.0.0.1:8000';
     }
     if (process.env.NEXT_PUBLIC_API_URL) {

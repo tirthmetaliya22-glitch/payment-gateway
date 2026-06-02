@@ -375,18 +375,22 @@ export default function CheckoutPage() {
             {/* High-Fidelity Scan-Ready QR */}
             <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200 aspect-square flex items-center justify-center mx-auto w-[230px] overflow-hidden">
               {timeLeft > 0 ? (
-                <a
-                  href={dynamicQrLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full h-full block cursor-pointer"
-                >
-                  <img
-                    src={USER_QR_BASE64}
-                    alt="Payment QR"
-                    className="w-full h-full object-contain hover:scale-[1.02] active:scale-[0.98] transition-transform duration-200"
-                  />
-                </a>
+                paymentData.payment_session_id ? (
+                  <div id="mount-here" className="w-full h-full flex items-center justify-center"></div>
+                ) : (
+                  <a
+                    href={dynamicQrLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full h-full block cursor-pointer"
+                  >
+                    <img
+                      src={USER_QR_BASE64}
+                      alt="Payment QR"
+                      className="w-full h-full object-contain hover:scale-[1.02] active:scale-[0.98] transition-transform duration-200"
+                    />
+                  </a>
+                )
               ) : (
                 <div className="flex flex-col items-center gap-2">
                   <AlertCircle className="w-10 h-10 text-red-500" />

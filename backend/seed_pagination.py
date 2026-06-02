@@ -1,4 +1,4 @@
-import requests
+import httpx
 import time
 
 API_URL = "http://127.0.0.1:8000"
@@ -14,7 +14,7 @@ def create_payment(name, amount, status="Active", creation_timestamp=None):
     # Note: the backend sets creation_timestamp, but for testing expired links 
     # we might need to manually insert into DB or wait.
     # However, for testing pagination, just creating many is enough.
-    resp = requests.post(f"{API_URL}/merchant/payments", json=payload)
+    resp = httpx.post(f"{API_URL}/merchant/payments", json=payload)
     data = resp.json()
     if data.get("status") == "success":
         payment = data.get("payment", {})
