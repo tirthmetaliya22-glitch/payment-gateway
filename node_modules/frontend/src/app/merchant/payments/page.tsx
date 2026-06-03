@@ -330,9 +330,15 @@ export default function PaymentPagesPage() {
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted">₹</span>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       value={newAmount}
-                      onChange={(e) => setNewAmount(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setNewAmount(val);
+                        }
+                      }}
                       placeholder="0.00"
                       className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                       required
