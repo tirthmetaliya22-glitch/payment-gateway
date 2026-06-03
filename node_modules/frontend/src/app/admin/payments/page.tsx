@@ -261,180 +261,186 @@ function CreateLinkModal({ isOpen, onClose, onSuccess, initialMerchant }: { isOp
 
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] sm:max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-4 sm:zoom-in duration-500 sm:duration-300">
-        <div className="px-6 py-4 border-b border-border bg-slate-50 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-secondary">Create Payment Link</h3>
-            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">
-              {initialMerchant ? `For: ${initialMerchant.name}` : 'Enter merchant username to continue'}
-            </p>
+    <div className="absolute right-0 top-full mt-2 bg-white border border-border rounded-2xl shadow-2xl z-[250] w-[calc(100vw-2rem)] sm:w-[400px] overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right text-left flex flex-col max-h-[85vh]">
+      <div className="px-6 py-4 border-b border-border bg-slate-50 flex items-center justify-between shrink-0">
+        <div>
+          <h3 className="text-lg font-bold text-secondary">Create Payment Link</h3>
+          <p className="text-[10px] text-muted font-bold uppercase tracking-wider">
+            {initialMerchant ? `For: ${initialMerchant.name}` : 'Enter merchant username to continue'}
+          </p>
+        </div>
+        <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors">
+          <X className="w-5 h-5 text-muted" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto overflow-x-hidden flex-1">
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-xs font-bold">
+            <AlertCircle className="w-4 h-4" /> {error}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors">
-            <X className="w-5 h-5 text-muted" />
-          </button>
+        )}
+
+        {!initialMerchant && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Merchant</label>
+            <div className="relative group" ref={dropdownRef}>
+              <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none z-10" />
+              <input
+                type="text"
+                required={!formData.merchant_username}
+                placeholder="Search or select a merchant..."
+                value={isDropdownOpen ? searchQuery : (merchants.find(m => (m.username || m.merchant_id || m.email) === formData.merchant_username)?.name || formData.merchant_username || '')}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  setFormData(prev => ({ ...prev, merchant_username: val }));
+                  if (!isDropdownOpen) setIsDropdownOpen(true);
+                }}
+                onFocus={() => {
+                  setIsDropdownOpen(true);
+                  setSearchQuery(formData.merchant_username);
+                }}
+                onKeyDown={handleKeyDown}
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-text"
+              />
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDropdownOpen(prev => !prev);
+                }}
+                className="absolute inset-y-0 right-0 px-4 flex items-center justify-center cursor-pointer z-20"
+              >
+                {isFetchingMerchants ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted" />
+                ) : (
+                  <ChevronDown className={`w-3.5 h-3.5 text-muted transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                )}
+              </button>
+
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <div className="absolute z-[400] top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  <div className="max-h-48 overflow-y-auto p-1">
+                    {filteredMerchants.length > 0 ? (
+                      filteredMerchants.map((m, i) => {
+                        const identifier = m.username || m.merchant_id || m.email;
+                        const isSelected = formData.merchant_username === identifier;
+                        const isHighlighted = highlightedIndex === i;
+                        return (
+                          <button
+                            id={`merchant-option-${i}`}
+                            key={`${identifier}-${i}`}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault(); // Prevent input from losing focus immediately
+                              setFormData({ ...formData, merchant_username: identifier });
+                              setIsDropdownOpen(false);
+                              setSearchQuery('');
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${isSelected
+                              ? 'bg-primary/10 border-primary/20'
+                              : isHighlighted
+                                ? 'bg-slate-100 border-l-4 border-l-primary'
+                                : 'hover:bg-slate-50'
+                              }`}
+                          >
+                            <div className="flex flex-col">
+                              <span className={`text-xs font-bold ${isSelected ? 'text-primary' : 'text-secondary'}`}>
+                                {m.name || m.username || m.email}
+                              </span>
+                              {m.username && (
+                                <span className="text-[10px] text-muted">@{m.username}</span>
+                              )}
+                            </div>
+                            {isSelected && <CheckCircle className="w-3 h-3 text-primary" />}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="px-3 py-4 text-center text-xs text-muted">
+                        No merchants found
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Payment Name</label>
+          <input
+            required
+            type="text"
+            placeholder="e.g., Consulting Fee"
+            value={formData.name || ''}
+            onChange={e => setFormData({ ...formData, name: e.target.value })}
+            className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-xs font-bold">
-              <AlertCircle className="w-4 h-4" /> {error}
-            </div>
-          )}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Amount (₹)</label>
+          <input
+            required
+            type="text"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={formData.amount || ''}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                setFormData({ ...formData, amount: val });
+              }
+            }}
+            className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+          />
+        </div>
 
-          {!initialMerchant && (
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Merchant</label>
-              <div className="relative group" ref={dropdownRef}>
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none z-10" />
-                <input
-                  type="text"
-                  required={!formData.merchant_username}
-                  placeholder="Search or select a merchant..."
-                  value={isDropdownOpen ? searchQuery : (merchants.find(m => (m.username || m.merchant_id || m.email) === formData.merchant_username)?.name || formData.merchant_username || '')}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    if (!isDropdownOpen) setIsDropdownOpen(true);
-                  }}
-                  onFocus={() => {
-                    setIsDropdownOpen(true);
-                    setSearchQuery('');
-                  }}
-                  onKeyDown={handleKeyDown}
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-text"
-                />
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Order ID (Optional)</label>
+          <input
+            type="text"
+            placeholder="e.g., ORD-77281"
+            value={formData.order_id || ''}
+            onChange={e => setFormData({ ...formData, order_id: e.target.value })}
+            className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+          />
+        </div>
 
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDropdownOpen(prev => !prev);
-                  }}
-                  className="absolute inset-y-0 right-0 px-4 flex items-center justify-center cursor-pointer z-20"
-                >
-                  {isFetchingMerchants ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-muted" />
-                  ) : (
-                    <ChevronDown className={`w-3.5 h-3.5 text-muted transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
-                  )}
-                </button>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Return URL (Optional)</label>
+          <input
+            type="url"
+            placeholder="https://your-website.com/success"
+            value={formData.return_url || ''}
+            onChange={e => setFormData({ ...formData, return_url: e.target.value })}
+            className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+          />
+        </div>
 
-                {/* Dropdown Menu */}
-                {isDropdownOpen && (
-                  <div className="absolute z-[400] top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                    <div className="max-h-48 overflow-y-auto p-1">
-                      {filteredMerchants.length > 0 ? (
-                        filteredMerchants.map((m, i) => {
-                          const identifier = m.username || m.merchant_id || m.email;
-                          const isSelected = formData.merchant_username === identifier;
-                          const isHighlighted = highlightedIndex === i;
-                          return (
-                            <button
-                              id={`merchant-option-${i}`}
-                              key={`${identifier}-${i}`}
-                              type="button"
-                              onMouseDown={(e) => {
-                                e.preventDefault(); // Prevent input from losing focus immediately
-                                setFormData({ ...formData, merchant_username: identifier });
-                                setIsDropdownOpen(false);
-                                setSearchQuery('');
-                              }}
-                              className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${isSelected
-                                ? 'bg-primary/10 border-primary/20'
-                                : isHighlighted
-                                  ? 'bg-slate-100 border-l-4 border-l-primary'
-                                  : 'hover:bg-slate-50'
-                                }`}
-                            >
-                              <div className="flex flex-col">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-primary' : 'text-secondary'}`}>
-                                  {m.name || m.username || m.email}
-                                </span>
-                                {m.username && (
-                                  <span className="text-[10px] text-muted">@{m.username}</span>
-                                )}
-                              </div>
-                              {isSelected && <CheckCircle className="w-3 h-3 text-primary" />}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="px-3 py-4 text-center text-xs text-muted">
-                          No merchants found
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Payment Name</label>
-            <input
-              required
-              type="text"
-              placeholder="e.g., Consulting Fee"
-              value={formData.name || ''}
-              onChange={e => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Amount (₹)</label>
-            <input
-              required
-              type="number"
-              placeholder="0.00"
-              value={formData.amount || ''}
-              onChange={e => setFormData({ ...formData, amount: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Order ID (Optional)</label>
-            <input
-              type="text"
-              placeholder="e.g., ORD-77281"
-              value={formData.order_id || ''}
-              onChange={e => setFormData({ ...formData, order_id: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Return URL (Optional)</label>
-            <input
-              type="url"
-              placeholder="https://your-website.com/success"
-              value={formData.return_url || ''}
-              onChange={e => setFormData({ ...formData, return_url: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-            />
-          </div>
-
-          <div className="pt-4 flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold text-secondary hover:bg-slate-50 transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              disabled={isSubmitting || (!initialMerchant && !formData.merchant_username)}
-              className="flex-1 py-3 bg-primary text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
-              Create Link
-            </button>
-          </div>
-        </form>
-      </div>
+        <div className="pt-4 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 border border-border rounded-xl text-xs font-bold text-secondary hover:bg-slate-50 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={isSubmitting || (!initialMerchant && !formData.merchant_username)}
+            className="flex-1 py-3 bg-primary text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
+            Create Link
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -451,6 +457,27 @@ export default function AdminPaymentsPage() {
   // New state for modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedMerchantForLink, setSelectedMerchantForLink] = useState<{ name: string, username: string } | null>(null);
+
+  const popoverRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.closest('.create-link-trigger')) {
+        return;
+      }
+      if (popoverRef.current && !popoverRef.current.contains(target)) {
+        setIsModalOpen(false);
+        setSelectedMerchantForLink(null);
+      }
+    };
+    if (isModalOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isModalOpen]);
 
   const fetchPayments = async () => {
     setIsLoading(true);
@@ -587,31 +614,30 @@ export default function AdminPaymentsPage() {
 
   return (
     <div className="p-4 md:p-8 page-entry relative">
-      {/* Create Link Modal */}
-      {isModalOpen && (
-        <CreateLinkModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setSelectedMerchantForLink(null);
-          }}
-          onSuccess={() => fetchPayments()}
-          initialMerchant={selectedMerchantForLink}
-        />
-      )}
-
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-8">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-secondary tracking-tight">Master Transactions</h1>
           <p className="text-xs md:text-sm text-muted">Monitor all merchant payments across the platform.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto relative" ref={popoverRef}>
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
+            onClick={() => setIsModalOpen(!isModalOpen)}
+            className="create-link-trigger flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
           >
             <LinkIcon className="w-4 h-4" /> CREATE PAYMENT LINK
           </button>
+
+          {isModalOpen && (
+            <CreateLinkModal
+              isOpen={isModalOpen}
+              onClose={() => {
+                setIsModalOpen(false);
+                setSelectedMerchantForLink(null);
+              }}
+              onSuccess={() => fetchPayments()}
+              initialMerchant={selectedMerchantForLink}
+            />
+          )}
           <div className="flex items-center gap-2 bg-white border border-border px-3 py-2 rounded-lg shadow-sm">
             <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Show:</span>
             <select
@@ -715,7 +741,7 @@ export default function AdminPaymentsPage() {
                                 });
                                 setIsModalOpen(true);
                               }}
-                              className="p-1 hover:bg-blue-50 rounded text-primary opacity-0 group-hover/mname:opacity-100 transition-all"
+                              className="create-link-trigger p-1 hover:bg-blue-50 rounded text-primary opacity-0 group-hover/mname:opacity-100 transition-all"
                               title="Create new payment link for this merchant"
                             >
                               <LinkIcon className="w-3 h-3" />

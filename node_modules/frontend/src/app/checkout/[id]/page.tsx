@@ -385,7 +385,7 @@ export default function CheckoutPage() {
                     className="w-full h-full block cursor-pointer"
                   >
                     <img
-                      src={USER_QR_BASE64}
+                      src={paymentData.qr_link || `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(dynamicQrLink)}`}
                       alt="Payment QR"
                       className="w-full h-full object-contain hover:scale-[1.02] active:scale-[0.98] transition-transform duration-200"
                     />
